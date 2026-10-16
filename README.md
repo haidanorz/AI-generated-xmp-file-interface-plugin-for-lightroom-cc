@@ -2,7 +2,7 @@
 
 An AI generated xmp-file interface for lightroom cc, which can use xmp-file to alter photo paramters
 </br>一个可以将ai生成的xmp图片参数配置文件应用到lr的接口插件
-
+</br>这是一个aicoding项目，建议配合agent使用
 > 插件本体位于本仓库的 **`AI-XMP-Color-Importer.lrdevplugin/`** 目录。
 > 在 Lightroom 的「增效工具管理器」中把该文件夹添加进来即可。
 
