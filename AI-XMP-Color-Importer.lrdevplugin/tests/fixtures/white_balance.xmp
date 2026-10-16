@@ -1,0 +1,37 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="AI Color Generator 1.0">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+
+  <!-- 第一段：白平衡走元素形式，且带自定义 Kelvin -->
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Version="17.5"
+    crs:ProcessVersion="15.4"
+    crs:RawFileName="IMG_1048.CR3"
+    crs:AIColorSchema="1.0"
+  >
+   <crs:WhiteBalance>Custom</crs:WhiteBalance>
+   <crs:Temperature>5600</crs:Temperature>
+   <crs:Tint>+7</crs:Tint>
+   <crs:Exposure2012>+0.15</crs:Exposure2012>
+  </rdf:Description>
+
+  <!-- 第二段：验证跨多个 rdf:Description 的字段合并 -->
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Vibrance="+12"
+    crs:ShadowTint="+4"
+    crs:RedHue="-5"
+  >
+   <crs:ColorGradeBlending>35</crs:ColorGradeBlending>
+   <crs:SplitToningBalance>-25</crs:SplitToningBalance>
+   <crs:SplitToningShadowHue>211</crs:SplitToningShadowHue>
+   <crs:SplitToningShadowSaturation>3</crs:SplitToningShadowSaturation>
+   <crs:ColorGradeShadowLum>-21</crs:ColorGradeShadowLum>
+   <crs:ColorGradeMidtoneHue>323</crs:ColorGradeMidtoneHue>
+   <crs:ColorGradeMidtoneSat>18</crs:ColorGradeMidtoneSat>
+   <crs:ColorGradeMidtoneLum>48</crs:ColorGradeMidtoneLum>
+   <crs:ColorGradeHighlightLum>-15</crs:ColorGradeHighlightLum>
+  </rdf:Description>
+
+ </rdf:RDF>
+</x:xmpmeta>

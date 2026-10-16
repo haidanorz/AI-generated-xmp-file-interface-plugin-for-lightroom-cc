@@ -1,0 +1,85 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="AI Color Generator 1.0">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:CameraRaw="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Version="17.5"
+    crs:ProcessVersion="15.4"
+    crs:WhiteBalance="As Shot"
+    CameraRaw:Exposure2012="+0.35"
+    crs:Contrast2012="+12"
+    crs:Highlights2012="-25"
+    crs:Shadows2012="+18"
+    crs:Whites2012="+5"
+    crs:Blacks2012="-8"
+    crs:Texture="+6"
+    crs:Clarity2012="+10"
+    crs:Dehaze="+4"
+    crs:Vibrance="+8"
+    crs:Saturation="-3"
+    crs:ConvertToGrayscale="False"
+    crs:AutoLateralCA="1"
+    crs:PostCropVignetteAmount="-12"
+    crs:PresetType="Normal"
+    crs:UUID="0123456789ABCDEF0123456789ABCDEF"
+    crs:Cluster="AI Color"
+    crs:HasSettings="True"
+    crs:SupportsAmount="False"
+    crs:CameraModelRestriction="Canon EOS R5"
+    crs:RawFileName="IMG_1023.CR3"
+    crs:AIColorSchema="1.0"
+    crs:AIVersion="portrait-color-v1"
+    crs:SomeFutureField="123"
+    crs:MaskGroupBasedCorrections="{}"
+    crs:IncrementalTemperature="+0"
+  >
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Natural Warm</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:ShortName>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">NatWarm</rdf:li>
+    </rdf:Alt>
+   </crs:ShortName>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">AI Color</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+   <crs:Description>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Coastal natural &amp; warm &#8212; 海岸自然暖调</rdf:li>
+    </rdf:Alt>
+   </crs:Description>
+
+   <crs:HueAdjustmentRed>-2</crs:HueAdjustmentRed>
+   <crs:HueAdjustmentOrange>-4</crs:HueAdjustmentOrange>
+   <crs:HueAdjustmentYellow>+3</crs:HueAdjustmentYellow>
+   <crs:HueAdjustmentGreen>+6</crs:HueAdjustmentGreen>
+   <crs:HueAdjustmentAqua>+5</crs:HueAdjustmentAqua>
+   <crs:HueAdjustmentBlue>+2</crs:HueAdjustmentBlue>
+   <crs:HueAdjustmentPurple>-1</crs:HueAdjustmentPurple>
+   <crs:HueAdjustmentMagenta>-3</crs:HueAdjustmentMagenta>
+
+   <crs:SaturationAdjustmentRed>+4</crs:SaturationAdjustmentRed>
+   <crs:SaturationAdjustmentOrange>-6</crs:SaturationAdjustmentOrange>
+   <crs:SaturationAdjustmentYellow>-8</crs:SaturationAdjustmentYellow>
+   <crs:SaturationAdjustmentGreen>-4</crs:SaturationAdjustmentGreen>
+   <crs:SaturationAdjustmentAqua>-2</crs:SaturationAdjustmentAqua>
+   <crs:SaturationAdjustmentBlue>-10</crs:SaturationAdjustmentBlue>
+   <crs:SaturationAdjustmentPurple>+2</crs:SaturationAdjustmentPurple>
+   <crs:SaturationAdjustmentMagenta>+3</crs:SaturationAdjustmentMagenta>
+
+   <crs:LuminanceAdjustmentRed>+2</crs:LuminanceAdjustmentRed>
+   <crs:LuminanceAdjustmentOrange>+8</crs:LuminanceAdjustmentOrange>
+   <crs:LuminanceAdjustmentYellow>+6</crs:LuminanceAdjustmentYellow>
+   <crs:LuminanceAdjustmentGreen>-3</crs:LuminanceAdjustmentGreen>
+   <crs:LuminanceAdjustmentAqua>+1</crs:LuminanceAdjustmentAqua>
+   <crs:LuminanceAdjustmentBlue>+7</crs:LuminanceAdjustmentBlue>
+   <crs:LuminanceAdjustmentPurple>-5</crs:LuminanceAdjustmentPurple>
+   <crs:LuminanceAdjustmentMagenta>-1</crs:LuminanceAdjustmentMagenta>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
