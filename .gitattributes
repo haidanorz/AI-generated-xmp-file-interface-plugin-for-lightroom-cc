@@ -1,0 +1,6 @@
+# 统一使用 LF，避免在 Windows 上因换行符产生无意义的差异
+* text=auto
+*.lua text eol=lf
+*.py  text eol=lf
+*.md  text eol=lf
+*.xmp text eol=lf
