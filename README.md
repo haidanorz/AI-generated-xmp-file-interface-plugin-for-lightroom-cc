@@ -1,10 +1,13 @@
-# AI-generated-xmp-file-interface-plugin-for-lightroom-cc
+# AI XMP Color Importer
 
-An AI generated xmp-file interface for lightroom cc, which can use xmp-file to alter photo paramters
-</br>一个可以将ai生成的xmp图片参数配置文件应用到lr的接口插件
+**An XMP interface for Lightroom Classic that writes AI-generated color grades straight into a photo's Develop settings — no presets involved.**
+
+**给 AI 生成的调色方案一条直接落地的通道**：解析 → 映射 → 校验 → 预览 → 写入照片的
+Develop 设置，全程不创建、也不污染 Lightroom 的预设列表。
 
 > 插件本体位于本仓库的 **`AI-XMP-Color-Importer.lrdevplugin/`** 目录。
 > 在 Lightroom 的「增效工具管理器」中把该文件夹添加进来即可。
+> （仓库名沿用了项目早期的 `AI-generated-xmp-file-interface-plugin-for-lightroom-cc`。）
 
 ---
 
@@ -91,6 +94,9 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 ---
 
 ## 准备 XMP 文件
+
+> 想先跑一遍看看效果，可以直接用仓库里的 `test-xmp/`：三个「海岸旷野」示例方案，
+> 无需自己准备 XMP。
 
 一份可用的 XMP 至少要有这些内容（节选）：
 
