@@ -658,15 +658,15 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ```bash
 # 推荐：在真实的 Lua 5.1（Lightroom 内嵌版本）上运行
 # 依赖：pip install lupa
-python tests/run_lua51.py            # 241 个用例
+python tests/run_lua51.py            # 242 个用例
 python tests/run_lua51.py luajit21   # 换 LuaJIT 2.1 交叉验证
 python tests/run_lua51.py lua54      # 换 Lua 5.4 交叉验证
 ```
 
 | 运行时 | 结果 |
 |---|---|
-| Lua 5.1（lupa） | 241 passed / 0 failed |
-| LuaJIT 2.1（lupa） | 241 passed / 0 failed |
+| Lua 5.1（lupa） | 242 passed / 0 failed |
+| LuaJIT 2.1（lupa） | 242 passed / 0 failed |
 | Lua 5.4（lupa） | 240 passed / 0 failed |
 
 覆盖内容：解析器（命名空间、`rdf:Seq` / `Bag` / `Alt`、实体、CDATA、BOM、错误路径）、

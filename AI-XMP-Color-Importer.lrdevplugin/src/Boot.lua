@@ -262,6 +262,16 @@ end
 -- @return ctx table { load, utils, logger, manifest, loader, root }
 function Boot.prepare()
     if AI_COLOR_IMPORTER and AI_COLOR_IMPORTER.booted then
+        -- ★ 已经初始化过时，**必须把 ctx 字段补齐再返回**。
+        --   这里原来直接 return Boot，而 Boot.load 只在下面完整初始化时才赋值，
+        --   于是「先开主界面、再点自动化菜单」这类第二次调用会拿到一个没有 load 的
+        --   Boot，报 attempt to call field 'load' (a nil value)。
+        Boot.root     = AI_COLOR_IMPORTER.root
+        Boot.load     = AI_COLOR_IMPORTER.load
+        Boot.loader   = AI_COLOR_IMPORTER.Loader
+        Boot.utils    = AI_COLOR_IMPORTER.load("src/Utils.lua")
+        Boot.logger   = AI_COLOR_IMPORTER.load("src/Logger.lua")
+        Boot.manifest = AI_COLOR_IMPORTER.load("manifest.lua")
         return Boot
     end
 

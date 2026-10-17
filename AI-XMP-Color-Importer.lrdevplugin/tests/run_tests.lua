@@ -569,6 +569,36 @@ else
         T.eq(#started, 1, "应且仅应启动 1 个异步任务")
         T.eq(started[1], "AI Color Importer", "任务名")
     end)
+
+    T.case("Boot.prepare 第二次调用也给出完整 ctx（回归：早退漏填 load 会报 nil）", function()
+        local started2 = {}
+        local sb2 = buildSandbox(started2)
+
+        local lf = sb2.import("LrFileUtils")
+        local lp = sb2.import("LrPathUtils")
+        local src = lf.readFile(lp.child(sb2._PLUGIN.path, "src/Boot.lua"))
+        T.truthy(src ~= nil, "应能读到 src/Boot.lua")
+
+        local chunk = setfenv(loadstring(src, "@src/Boot.lua"), sb2)
+        local Boot  = chunk()
+
+        local ctx1 = Boot.prepare()
+        T.eq(type(ctx1.load), "function", "首次 prepare 应给出 load")
+
+        -- 已 booted → 走早退分支；这里以前会漏填字段，
+        -- 于是「先开主界面、再点自动化菜单」会报 attempt to call field 'load' (a nil value)
+        local ctx2 = Boot.prepare()
+        T.eq(type(ctx2.load),     "function", "第二次 prepare 也必须给出 load")
+        T.eq(type(ctx2.loader),   "table",    "loader 应可用")
+        T.eq(type(ctx2.utils),    "table",    "utils 应可用")
+        T.eq(type(ctx2.logger),   "table",    "logger 应可用")
+        T.eq(type(ctx2.manifest), "table",    "manifest 应可用")
+
+        -- 关键：早退拿到的 ctx 必须真的能加载模块（菜单文件就靠这个）
+        local D = ctx2.load("src/Diagnostics.lua")
+        T.isTable(D, "应能通过早退拿到的 ctx 加载 Diagnostics")
+        T.eq(type(D.collect), "function")
+    end)
 end
 
 ----------------------------------------------------------------------
