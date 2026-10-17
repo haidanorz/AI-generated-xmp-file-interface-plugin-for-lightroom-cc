@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -14,6 +15,11 @@ from pathlib import Path
 
 from ai_color_mcp import server
 from ai_color_mcp.queue_bridge import JobOptions, QueueBridge
+
+try:  # `-s tests` 直接发现时为顶层模块，作为包导入时带 tests. 前缀
+    from test_queue_bridge import FakePlugin
+except ModuleNotFoundError:  # pragma: no cover
+    from tests.test_queue_bridge import FakePlugin
 
 
 class ToolSchemaTest(unittest.TestCase):
@@ -130,6 +136,136 @@ class ToolBehaviourTest(unittest.TestCase):
         self.assertEqual(payload["photos"][0]["would_apply"], 55)
         self.assertIsNone(payload["photos"][0]["verify"])
         json.dumps(payload)  # 必须可 JSON 序列化（MCP 会序列化返回）
+
+
+class ResultPruneTest(unittest.TestCase):
+    """results/ 的清理必须真的接上，而且**永远不能影响调用结果**。
+
+    之前 `QueueBridge.cleanup_results` 写了却没人调用 → 队列目录无限增长。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.bridge = QueueBridge(root / "queue", poll_interval=0.05)
+        self.bridge.ensure_dirs()
+        self.xmp = root / "a.xmp"
+        self.xmp.write_text("<x/>", encoding="utf-8")
+        self.photo = root / "A.ARW"
+        self.photo.write_bytes(b"raw")
+
+        self._old_keep = server._keep_results
+        server._bridge = self.bridge
+        server._keep_results = 3
+
+        # 预埋 6 份"旧结果"，mtime 递增，模拟长期使用后的堆积
+        for i in range(6):
+            path = self.bridge.results / f"old-{i}.json"
+            path.write_text("{}", encoding="utf-8")
+            os.utime(path, (1_000_000 + i, 1_000_000 + i))
+
+        self.plugin = FakePlugin(self.bridge)
+        self.plugin.start()
+
+    def tearDown(self) -> None:
+        self.plugin.stop_event.set()
+        self.plugin.join(timeout=2)
+        server._bridge = None
+        server._keep_results = self._old_keep
+        self._tmp.cleanup()
+
+    def results(self) -> list[Path]:
+        return sorted(self.bridge.results.glob("*.json"))
+
+    def test_successful_call_prunes_old_results(self) -> None:
+        out = server.ai_color_dry_run(str(self.xmp), [str(self.photo)], timeout_sec=5)
+        files = self.results()
+        self.assertEqual(len(files), 3, [p.name for p in files])
+        self.assertIn(f"{out['job_id']}.json", [p.name for p in files], "本次结果不能被清掉")
+        # 保留的应是最新的：old-5 / old-4 还在，old-0 已被删
+        names = {p.name for p in files}
+        self.assertIn("old-5.json", names)
+        self.assertNotIn("old-0.json", names)
+
+    def test_keep_zero_disables_pruning(self) -> None:
+        server._keep_results = 0
+        server.ai_color_dry_run(str(self.xmp), [str(self.photo)], timeout_sec=5)
+        self.assertEqual(len(self.results()), 7, "keep=0 表示不清理")
+
+    def test_prune_failure_never_breaks_the_call(self) -> None:
+        """清理失败（权限 / 文件被占用）不能让用户以为照片没写成功。"""
+
+        def boom(keep: int = 20) -> int:
+            raise OSError("locked")
+
+        self.bridge.cleanup_results = boom  # type: ignore[method-assign]
+        out = server.ai_color_dry_run(str(self.xmp), [str(self.photo)], timeout_sec=5)
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(self.results()), 7, "清理失败时旧文件原样保留")
+
+
+class ParamDefaultTest(unittest.TestCase):
+    """`Field(default=...)` 在直接调用时是 FieldInfo 对象，恒为真值。
+
+    省略 `apply_extended_fields` 就等于**悄悄打开扩展字段**（55 → 73 个字段，
+    多写暗角等 18 个）。这个 bug 在真机上被发现：同一个 XMP 两次 dry run
+    字段数不同，一查是呼叫方式差异。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.bridge = QueueBridge(root / "queue", poll_interval=0.05)
+        self.bridge.ensure_dirs()
+        self.xmp = root / "a.xmp"
+        self.xmp.write_text("<x/>", encoding="utf-8")
+        self.photo = root / "A.ARW"
+        self.photo.write_bytes(b"raw")
+        self._old_bridge = server._bridge
+        server._bridge = self.bridge
+        self.plugin = FakePlugin(self.bridge)
+        self.plugin.start()
+
+        self.seen: list[JobOptions] = []
+        real_submit = self.bridge.submit
+
+        def spy(xmp, photos, options=None, *, job_id=None):  # noqa: ANN001
+            self.seen.append(options)
+            return real_submit(xmp, photos, options, job_id=job_id)
+
+        self.bridge.submit = spy  # type: ignore[method-assign]
+
+    def tearDown(self) -> None:
+        self.plugin.stop_event.set()
+        self.plugin.join(timeout=2)
+        server._bridge = self._old_bridge
+        self._tmp.cleanup()
+
+    def test_flag_helper_ignores_non_bool(self) -> None:
+        from pydantic.fields import FieldInfo
+
+        self.assertFalse(server._flag(FieldInfo(default=False), False))
+        self.assertFalse(server._flag(None, False))
+        self.assertTrue(server._flag(True, False))
+        self.assertFalse(server._flag(False, True))
+
+    def test_timeout_helper_ignores_non_number(self) -> None:
+        from pydantic.fields import FieldInfo
+
+        self.assertEqual(server._timeout(FieldInfo(default=60.0), 60.0), 60.0)
+        self.assertEqual(server._timeout(None, 120.0), 120.0)
+        self.assertEqual(server._timeout(5, 120.0), 5.0)
+
+    def test_dry_run_without_flags_keeps_extended_fields_off(self) -> None:
+        server.ai_color_dry_run(str(self.xmp), [str(self.photo)])
+        self.assertEqual(len(self.seen), 1)
+        self.assertFalse(self.seen[0].apply_extended_fields)
+        self.assertEqual(self.seen[0].to_json()["applyExtendedFields"], False)
+
+    def test_apply_without_flags_defaults_verify_on(self) -> None:
+        server.ai_color_apply(str(self.xmp), [str(self.photo)])
+        self.assertTrue(self.seen[0].verify)
+        self.assertFalse(self.seen[0].apply_extended_fields)
 
 
 if __name__ == "__main__":

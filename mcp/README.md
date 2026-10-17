@@ -40,6 +40,20 @@ C:/Users/26804/.workbuddy/binaries/python/envs/default/Scripts/python.exe   # 3.
 `--check` 不启动 MCP 协议，只打印一次环境自检（目录是否存在、可写、最近的 job），
 排错时先跑它。
 
+### 队列目录会自己收敛
+
+每调一次工具就在 `results/` 落一份结果，长期用会无限增长。所以每次调用成功后
+会自动清掉旧结果，**只保留最近 20 份**：
+
+```bash
+# 想查完整历史就先关掉清理，或者调大保留份数
+<python> -m ai_color_mcp --keep-results 0      # 不清理
+<python> -m ai_color_mcp --keep-results 100    # 保留 100 份
+```
+
+清理是纯粹的收尾动作——**失败不会影响调用结果**（照片写没写成功只看 `applied`
+和 `verify`），只在 stderr 记一条 warning。`archive/` 由插件自己管理，不在此列。
+
 ## 客户端配置
 
 参考 `mcp.example.json`。三个要点：

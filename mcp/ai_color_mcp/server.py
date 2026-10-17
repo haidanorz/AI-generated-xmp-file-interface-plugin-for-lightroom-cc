@@ -65,16 +65,45 @@ mcp = FastMCP(
 
 _bridge: QueueBridge | None = None
 
+# results/ 只保留最近 N 份。每调一次工具就多一份结果文件，长期使用会无限增长；
+# 0 表示不清理（排错时想要完整历史就设 0）。
+RESULT_KEEP = 20
+_keep_results = RESULT_KEEP
 
-def configure(queue_dir: str | None = None, *, timeout: float | None = None) -> QueueBridge:
+
+def configure(
+    queue_dir: str | None = None,
+    *,
+    timeout: float | None = None,
+    keep_results: int | None = None,
+) -> QueueBridge:
     """设置/替换全局桥接实例（命令行与测试都用它）。"""
-    global _bridge
+    global _bridge, _keep_results
     kwargs = {}
     if timeout is not None:
         kwargs["result_timeout"] = timeout
+    if keep_results is not None:
+        _keep_results = max(0, int(keep_results))
     _bridge = QueueBridge(discover_queue_dir(queue_dir), **kwargs)
-    log.info("队列目录：%s", _bridge.queue_dir)
+    log.info("队列目录：%s（结果保留最近 %d 份）", _bridge.queue_dir, _keep_results)
     return _bridge
+
+
+def _prune_results() -> None:
+    """清掉 results/ 里的旧结果。
+
+    纯 housekeeping：**失败绝不影响本次调用**——用户要的是照片被写好，
+    不是队列目录干净。所以这里吞掉所有异常，只记一条 warning。
+    """
+    if _keep_results <= 0:
+        return
+    try:
+        removed = bridge().cleanup_results(keep=_keep_results)
+    except OSError as exc:  # 权限 / 文件被别人占用
+        log.warning("清理旧结果失败（不影响本次调用）：%s", exc)
+        return
+    if removed:
+        log.info("清理了 %d 份旧结果（保留最近 %d 份）", removed, _keep_results)
 
 
 def bridge() -> QueueBridge:
@@ -85,6 +114,24 @@ def bridge() -> QueueBridge:
 
 
 MIN_VERIFY_BUILD = 16
+
+
+def _flag(value: object, default: bool) -> bool:
+    """把工具参数归一化成 bool。
+
+    ★ 为什么需要这个：`Field(default=False)` 写在函数签名里，**直接调用函数**
+    （不经过 MCP 协议）时拿到的是 `FieldInfo` 对象本身，而它恒为真值 ——
+    于是 `apply_extended_fields` 省略不传就等于 True，悄悄多写 18 个扩展字段。
+    MCP 协议路径上框架会填真默认值，所以只有 Python 侧直调（测试 / 内嵌）会中招。
+    """
+    return value if isinstance(value, bool) else default
+
+
+def _timeout(value: object, default: float | None) -> float | None:
+    """同上：`timeout_sec` 省略时会把 FieldInfo 传进 time.monotonic() 相加。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return float(value)
 
 
 def build_number(plugin_version: str | None) -> int:
@@ -158,6 +205,9 @@ def _call(
                 "详见 photos[].verify.details（Lightroom 的读回存在已知滞后，"
                 "多数稍后会一致；若持续不一致，多半是这类字段被 SDK 忽略）"
             )
+
+    # 结果已经在手里了，再清理旧文件；放最后是为了任何清理问题都影响不到返回值
+    _prune_results()
     return payload
 
 
@@ -187,8 +237,8 @@ def ai_color_dry_run(
         photos,
         dry_run=True,
         verify=False,
-        apply_extended_fields=apply_extended_fields,
-        timeout_sec=timeout_sec,
+        apply_extended_fields=_flag(apply_extended_fields, False),
+        timeout_sec=_timeout(timeout_sec, 60.0),
     )
 
 
@@ -215,9 +265,9 @@ def ai_color_apply(
         xmp,
         photos,
         dry_run=False,
-        verify=verify,
-        apply_extended_fields=apply_extended_fields,
-        timeout_sec=timeout_sec,
+        verify=_flag(verify, True),
+        apply_extended_fields=_flag(apply_extended_fields, False),
+        timeout_sec=_timeout(timeout_sec, 120.0),
     )
 
 
@@ -258,13 +308,19 @@ def main(argv: list[str] | None = None) -> None:
         help="默认等待结果的秒数（工具参数可覆盖）",
     )
     parser.add_argument(
+        "--keep-results",
+        type=int,
+        default=None,
+        help=f"results/ 保留最近多少份结果（默认 {RESULT_KEEP}，0 = 不清理）",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="只做一次环境自检并打印 JSON（不启动 MCP 协议，便于排错）",
     )
     args = parser.parse_args(argv)
 
-    configure(args.queue_dir, timeout=args.timeout)
+    configure(args.queue_dir, timeout=args.timeout, keep_results=args.keep_results)
 
     if args.check:
         import json
