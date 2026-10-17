@@ -306,6 +306,7 @@ queue/
 - `dryRun` 可以先跑一遍看结果
 - 单张失败不影响同 job 内其它照片；整 job 的 `ok` = 所有照片都成功
 - 处理完的 job 一定移出 `inbox/`（失败件也移走），不会反复重试
+- 万一归档失败，同一份内容也不会被每秒重复处理（按「路径 + 文件大小」判断）
 - 所有动作照常写日志
 
 ## 应用之后发生什么
@@ -624,6 +625,7 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
     ├── Main.lua                         ← 主界面入口
     ├── AutomationStart.lua              ← 菜单：开启自动化监听（手动）
     ├── AutomationStop.lua               ← 菜单：停止自动化监听
+    ├── AutomationStatus.lua             ← 菜单：诊断报告
     ├── manifest.lua                     ← 运行时清单与默认配置
     ├── src/
     │   ├── Boot.lua                     ← 统一启动引导（加载器 / 平台注入 / 日志）
@@ -639,7 +641,8 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
     │   ├── ApplyEngine.lua              ← 无 UI 应用引擎（判定 / 确认 / 写入）
     │   ├── ApplyDevelop.lua             ← 唯一的写入点
     │   ├── JobRunner.lua                ← 自动化队列（job.json → result.json）
-    │   └── AutomationListener.lua       ← 轮询监听器（必须手动开启）
+    │   ├── AutomationListener.lua       ← 轮询监听器（必须手动开启）
+    │   └── Diagnostics.lua              ← 自检报告（状态 + 文件操作自检 + 日志）
     ├── ui/
     │   ├── ImportDialog.lua             ← 主界面
     │   └── ProgressDialog.lua           ← 进度提示
@@ -655,16 +658,16 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ```bash
 # 推荐：在真实的 Lua 5.1（Lightroom 内嵌版本）上运行
 # 依赖：pip install lupa
-python tests/run_lua51.py            # 229 个用例
+python tests/run_lua51.py            # 241 个用例
 python tests/run_lua51.py luajit21   # 换 LuaJIT 2.1 交叉验证
 python tests/run_lua51.py lua54      # 换 Lua 5.4 交叉验证
 ```
 
 | 运行时 | 结果 |
 |---|---|
-| Lua 5.1（lupa） | 229 passed / 0 failed |
-| LuaJIT 2.1（lupa） | 229 passed / 0 failed |
-| Lua 5.4（lupa） | 228 passed / 0 failed |
+| Lua 5.1（lupa） | 241 passed / 0 failed |
+| LuaJIT 2.1（lupa） | 241 passed / 0 failed |
+| Lua 5.4（lupa） | 240 passed / 0 failed |
 
 覆盖内容：解析器（命名空间、`rdf:Seq` / `Bag` / `Alt`、实体、CDATA、BOM、错误路径）、
 字段映射与类型转换、白平衡与色调曲线转换、颜色分级别名、范围校验与收拢、
