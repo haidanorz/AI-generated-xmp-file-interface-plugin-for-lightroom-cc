@@ -89,6 +89,8 @@ local MODULES = {
     "Validation", "DevelopSettings",
     -- 无 UI 应用引擎
     "ApplyEngine",
+    -- 自动化队列
+    "Json", "JobRunner", "AutomationListener", "Boot",
     -- Lightroom 适配层（import 已改为延迟获取，因此也应能加载）
     "PhotoResolver", "ApplyDevelop",
     -- UI
@@ -670,6 +672,8 @@ require "test_XmpParser"
 require "test_XmpMapping"
 require "test_Validation"
 require "test_ApplyEngine"
+require "test_Json"
+require "test_JobRunner"
 
 ----------------------------------------------------------------------
 -- 收尾

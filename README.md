@@ -22,6 +22,7 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 - [安装](#安装)
 - [准备 XMP 文件](#准备-xmp-文件)
 - [使用步骤](#使用步骤)
+- [自动化模式（无点击）](#自动化模式无点击)
 - [应用之后发生什么](#应用之后发生什么)
 - [支持的字段](#支持的字段)
 - [字段转换说明](#字段转换说明)
@@ -44,6 +45,8 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 - **应用前可预览。** 点 Apply 之前，你可以逐项检查将要写入的参数。
 - **零外部依赖。** 纯 Lua 插件，不需要 Python / Node / 任何第三方运行时。
 - **支持 92 个 Develop 字段**（其中 65 个默认启用，27 个扩展字段可选）。
+- **可脚本化。** 除了手动操作，也能通过「队列目录 + job.json」全自动应用，
+  适合批量或外部程序驱动（见[自动化模式](#自动化模式无点击)）。
 
 ---
 
@@ -206,6 +209,104 @@ Fields: 37    Warnings: 2    Unsupported: 4    Errors: 0
 - 如果分析结果里有**校验错误**，插件会列出错误并要求确认后才写入。
 
 ---
+
+## 自动化模式（无点击）
+
+除了手动点菜单，也可以让外部程序（脚本 / 批处理 / AI agent）全自动驱动。
+
+### 开启 / 停止
+
+自动化监听**不会随插件自动启动**，必须由你在菜单里手动开启：
+
+```
+图库 ▸ 增效工具扩展 ▸ AI Color: Start Automation Listener…
+图库 ▸ 增效工具扩展 ▸ AI Color: Stop Automation Listener…
+```
+
+开启后插件会每 1 秒检查一次队列目录；**关闭 Lightroom 或点 Stop 即停止。**
+
+### 队列目录
+
+默认在插件目录下的 `queue/`：
+
+```
+queue/
+├── inbox/      ← 把 job.json 丢进来
+├── results/    ← 每个 job 处理完写一份 <id>.json（成功失败都写）
+└── archive/    ← 处理完的 job 归档（失败件加 failed- 前缀）
+```
+
+> **队列目录请放在纯 ASCII 路径下。** Lightroom 的 API 没有写文件函数，
+> 结果落盘要走 Lua 的 `io`，而它在 Windows 受系统 ANSI 代码页限制 ——
+> 路径里有中文时可能写不进去。
+
+### job.json
+
+```json
+{
+  "id": "20261017-001",
+  "xmp": "D:/xmp/natural-warm.xmp",
+  "photos": [
+    "D:/photos/IMG_1023.CR3",
+    "D:/photos/IMG_1048.CR3"
+  ],
+  "options": {
+    "applyExtendedFields": false,
+    "dryRun": false,
+    "verify": false,
+    "policy": { "mismatch": "skip", "sidecar": "apply", "errors": "skip" }
+  }
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 可选；缺省取 job 文件的文件名 |
+| `xmp` | 必填，XMP 的绝对路径 |
+| `photos` | 必填，照片的绝对路径数组（会按路径在目录里精确查找） |
+| `options.dryRun` | 只算不写，用于先验证会发生什么 |
+| `options.verify` | 写入后读回校验（只记日志，不影响成功判定） |
+| `options.policy` | 无人裁决时的取舍：`skip` 表示这张照片不动 |
+
+### result（`results/<id>.json`）
+
+```json
+{
+  "id": "20261017-001",
+  "ok": true,
+  "dryRun": false,
+  "xmp": "D:/xmp/natural-warm.xmp",
+  "counts": { "photos": 2, "ok": 2, "failed": 0, "skipped": 0 },
+  "photos": [
+    {
+      "photo": "D:/photos/IMG_1023.CR3",
+      "fileName": "IMG_1023.CR3",
+      "ok": true,
+      "stage": "apply",
+      "applied": 37,
+      "wouldApply": 37,
+      "errors": 0,
+      "warnings": 2,
+      "historyStep": "AI Color: Natural Warm"
+    }
+  ]
+}
+```
+
+`stage` 说明失败停在哪一步：`parse`（job 格式问题）/ `analyze`（XMP 有问题）/
+`resolve`（目录里找不到这张照片）/ `precheck`（前置校验未通过，被跳过）/ `apply`（写入）。
+`ok` 为 false 时 `message` 会说明原因。
+
+### 自动化模式的安全阀
+
+去掉弹窗就等于去掉了确认，因此内置了这些约束：
+
+- **单 job 最多 50 张照片**，防止一条错误 job 批量改动
+- 源文件不匹配 / 字段校验有错时**默认跳过该照片**，不写入
+- `dryRun` 可以先跑一遍看结果
+- 单张失败不影响同 job 内其它照片；整 job 的 `ok` = 所有照片都成功
+- 处理完的 job 一定移出 `inbox/`（失败件也移走），不会反复重试
+- 所有动作照常写日志
 
 ## 应用之后发生什么
 
@@ -506,19 +607,25 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ├── .gitignore
 └── AI-XMP-Color-Importer.lrdevplugin/     ← 插件本体（在 Lightroom 中指向这个文件夹）
     ├── Info.lua                         ← 插件清单（菜单注册）
-    ├── Main.lua                         ← 入口
+    ├── Main.lua                         ← 主界面入口
+    ├── AutomationStart.lua              ← 菜单：开启自动化监听（手动）
+    ├── AutomationStop.lua               ← 菜单：停止自动化监听
     ├── manifest.lua                     ← 运行时清单与默认配置
     ├── src/
+    │   ├── Boot.lua                     ← 统一启动引导（加载器 / 平台注入 / 日志）
     │   ├── Loader.lua                   ← 模块加载器
     │   ├── Utils.lua                    ← 工具 + 平台抽象
     │   ├── Logger.lua                   ← 日志与结构化报告
+    │   ├── Json.lua                     ← JSON 编解码（自动化队列用）
     │   ├── XmpParser.lua                ← XMP / XML 解析器（纯 Lua）
     │   ├── XmpMapping.lua               ← 字段映射表（唯一事实来源）
     │   ├── Validation.lua               ← 范围校验（纯 Lua）
     │   ├── DevelopSettings.lua          ← 参数装配与预览（纯 Lua）
     │   ├── PhotoResolver.lua            ← 目标照片解析与来源匹配
     │   ├── ApplyEngine.lua              ← 无 UI 应用引擎（判定 / 确认 / 写入）
-    │   └── ApplyDevelop.lua             ← 唯一的写入点
+    │   ├── ApplyDevelop.lua             ← 唯一的写入点
+    │   ├── JobRunner.lua                ← 自动化队列（job.json → result.json）
+    │   └── AutomationListener.lua       ← 轮询监听器（必须手动开启）
     ├── ui/
     │   ├── ImportDialog.lua             ← 主界面
     │   └── ProgressDialog.lua           ← 进度提示
@@ -534,16 +641,16 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ```bash
 # 推荐：在真实的 Lua 5.1（Lightroom 内嵌版本）上运行
 # 依赖：pip install lupa
-python tests/run_lua51.py            # 186 个用例
+python tests/run_lua51.py            # 229 个用例
 python tests/run_lua51.py luajit21   # 换 LuaJIT 2.1 交叉验证
 python tests/run_lua51.py lua54      # 换 Lua 5.4 交叉验证
 ```
 
 | 运行时 | 结果 |
 |---|---|
-| Lua 5.1（lupa） | 186 passed / 0 failed |
-| LuaJIT 2.1（lupa） | 186 passed / 0 failed |
-| Lua 5.4（lupa） | 185 passed / 0 failed |
+| Lua 5.1（lupa） | 229 passed / 0 failed |
+| LuaJIT 2.1（lupa） | 229 passed / 0 failed |
+| Lua 5.4（lupa） | 228 passed / 0 failed |
 
 覆盖内容：解析器（命名空间、`rdf:Seq` / `Bag` / `Alt`、实体、CDATA、BOM、错误路径）、
 字段映射与类型转换、白平衡与色调曲线转换、颜色分级别名、范围校验与收拢、

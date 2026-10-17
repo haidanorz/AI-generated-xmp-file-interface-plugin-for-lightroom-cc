@@ -57,7 +57,7 @@ return {
     LrToolkitIdentifier  = "com.aicolor.xmp-importer",
     LrPluginName         = "AI XMP Color Importer",
 
-    VERSION = { major = 1, minor = 0, revision = 0, build = 9 },
+    VERSION = { major = 1, minor = 0, revision = 0, build = 10 },
 
     ------------------------------------------------------------------
     -- 菜单项
@@ -75,6 +75,15 @@ return {
         {
             title = "AI Color: Apply XMP to Target Photo…",
             file  = "Main.lua",
+        },
+        {
+            -- 自动化监听**必须由用户手动开启**（不随插件加载自动运行）
+            title = "AI Color: Start Automation Listener…",
+            file  = "AutomationStart.lua",
+        },
+        {
+            title = "AI Color: Stop Automation Listener…",
+            file  = "AutomationStop.lua",
         },
     },
 }

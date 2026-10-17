@@ -29,6 +29,12 @@ local platform = {
     now        = nil,   -- function() -> os.time() 风格整数
     date       = nil,   -- function(fmt, t) -> string
     sleep      = nil,   -- function(seconds)
+    -- 自动化队列用
+    makeDirectory = nil,-- function(path) -> ok
+    listFiles     = nil,-- function(dirPath) -> 数组（完整路径，已排序）
+    moveFile      = nil,-- function(srcPath, destPath) -> ok | nil, err
+    chooseUniqueFile = nil, -- function(path) -> 不冲突的新路径
+    deleteFile    = nil,-- function(path) -> boolean
 }
 
 local hasIO = (type(io) == "table" and type(io.open) == "function")
@@ -67,6 +73,130 @@ if hasIO then
             return true
         end
         return false
+    end
+end
+
+----------------------------------------------------------------------
+-- 写文件 / 建目录 / 列目录
+--   Lightroom 端的 LrFileUtils 只有 readFile，**没有写文件函数**，
+--   所以 Main.lua 注入的实现里写文件仍需 io 兜底；
+--   测试环境（普通 Lua）则全部用 io / os。
+----------------------------------------------------------------------
+
+if platform.writeFile == nil and hasIO then
+    platform.writeFile = function(path, contents)
+        if type(path) ~= "string" or path == "" then
+            return nil, "路径为空"
+        end
+        local f, err = io.open(path, "wb")
+        if not f then
+            return nil, err or ("无法写入文件: " .. path)
+        end
+        local okWrite, werr = f:write(contents)
+        f:close()
+        if okWrite == nil then
+            return nil, werr or "写入失败"
+        end
+        return true
+    end
+end
+
+local function isWindowsPath()
+    return type(package) == "table"
+        and type(package.config) == "string"
+        and package.config:sub(1, 1) == "\\"
+end
+
+--- 创建目录（含所有父目录）。失败不抛错，由调用方在真正写入时暴露。
+platform.makeDirectory = function(path)
+    if not hasIO or type(path) ~= "string" or path == "" then
+        return false, "当前环境无法创建目录"
+    end
+    local cmd
+    if isWindowsPath() then
+        cmd = string.format('mkdir "%s" 2>nul', path)
+    else
+        cmd = string.format('mkdir -p "%s"', path)
+    end
+    if type(os) == "table" and type(os.execute) == "function" then
+        os.execute(cmd)
+    end
+    return true
+end
+
+--- 列出目录下的直接子文件（完整路径数组，已排序）。目录不存在时返回空数组。
+platform.listFiles = function(dirPath)
+    local out = {}
+    if not hasIO or type(dirPath) ~= "string" or dirPath == "" then
+        return out
+    end
+    local cmd
+    if isWindowsPath() then
+        cmd = string.format('dir /b /a-d "%s" 2>nul', dirPath)
+    else
+        cmd = string.format('ls -1 "%s" 2>/dev/null', dirPath)
+    end
+    local pipe = io.popen(cmd)
+    if not pipe then
+        return out
+    end
+    for name in pipe:lines() do
+        if name ~= "" then
+            out[#out + 1] = platform.joinPath(dirPath, name)
+        end
+    end
+    pipe:close()
+    table.sort(out)
+    return out
+end
+
+--- 移动 / 重命名文件（目标父目录必须存在，且不能覆盖已有文件）
+if platform.moveFile == nil and hasIO then
+    platform.moveFile = function(srcPath, destPath)
+        if Utils.isBlank and Utils.isBlank(srcPath) then
+            return nil, "源路径为空"
+        end
+        if type(os) ~= "table" or type(os.rename) ~= "function" then
+            return nil, "当前环境不支持移动文件"
+        end
+        local ok, err = os.rename(srcPath, destPath)
+        if not ok then
+            return nil, err or "移动失败"
+        end
+        return true
+    end
+end
+
+--- 删除文件（不存在时视为成功）
+if platform.deleteFile == nil and hasIO then
+    platform.deleteFile = function(path)
+        if type(path) ~= "string" or path == "" then
+            return false
+        end
+        if type(os) == "table" and type(os.remove) == "function" then
+            os.remove(path)
+        end
+        return true
+    end
+end
+
+--- 生成一个不与现有文件冲突的路径（同名时追加 -1 / -2 ...）
+if platform.chooseUniqueFile == nil then
+    platform.chooseUniqueFile = function(path)
+        if not platform.fileExists or not platform.fileExists(path) then
+            return path
+        end
+        local stem, ext = path:match("^(.-)(%.[^./\\]+)$")
+        if stem == nil then
+            stem, ext = path, ""
+        end
+        for i = 1, 999 do
+            local candidate = string.format("%s-%d%s", stem, i, ext)
+            if not platform.fileExists(candidate) then
+                return candidate
+            end
+        end
+        return string.format("%s-%d%s", stem, os.time(), ext)
     end
 end
 

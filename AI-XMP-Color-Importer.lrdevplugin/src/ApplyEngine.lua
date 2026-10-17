@@ -306,7 +306,10 @@ function ApplyEngine.apply(photo, desc, analysis, opts)
         stage   = "precheck",
         message = nil,
         skipped = false,
+        dryRun  = false,
         applied = 0,
+        wouldApply = 0,
+        historyName = nil,
         counts  = {},
         issues  = {},
         verify  = nil,
@@ -383,6 +386,24 @@ function ApplyEngine.apply(photo, desc, analysis, opts)
     ----------------------------------------------------------------
     local applyTable = DevelopSettings.toApplyTable(analysis.result)
     local historyName = ApplyEngine.historyNameFor(meta)
+    outcome.historyName = historyName
+    outcome.wouldApply  = Utils.tcount(applyTable)
+
+    ----------------------------------------------------------------
+    -- dryRun：只算不写（自动化模式必备的安全阀）
+    ----------------------------------------------------------------
+    if opts.dryRun then
+        outcome.stage      = "dryrun"
+        outcome.ok         = true
+        outcome.dryRun     = true
+        outcome.message    = string.format(
+            "dryRun：本应写入 %d 个字段，未实际修改照片", outcome.wouldApply)
+        outcome.reportText = buildReport("DRYRUN")
+        Logger.info(outcome.message, {
+            operation = "APPLY", photo = photoName, xmp = xmpName, result = "DRYRUN",
+        })
+        return outcome
+    end
 
     local applyResult = ApplyDevelop.apply(photo, applyTable, {
         historyName = historyName,

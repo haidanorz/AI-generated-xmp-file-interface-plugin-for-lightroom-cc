@@ -19,7 +19,7 @@ local Manifest = {}
 ----------------------------------------------------------------------
 Manifest.pluginName        = "AI XMP Color Importer"
 Manifest.pluginId          = "com.aicolor.xmp-importer"
-Manifest.pluginVersion     = { major = 1, minor = 0, revision = 0, build = 9 }
+Manifest.pluginVersion     = { major = 1, minor = 0, revision = 0, build = 10 }
 Manifest.pluginVersionText = "1.0.0"
 
 ----------------------------------------------------------------------
