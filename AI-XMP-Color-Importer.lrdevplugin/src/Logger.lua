@@ -110,7 +110,10 @@ local function forward(line, level)
             end
         end)
     end
-    if state.echo or not state.lrLogger then
+    -- 只有 echo 打开时才打到控制台。
+    -- Main.lua 里 echo = (没挂上 LrLogger)，所以生产环境行为不变；
+    -- 但测试环境显式设 echo=false 时就不会被日志噪音淹掉。
+    if state.echo then
         pcall(function()
             print(line)
         end)

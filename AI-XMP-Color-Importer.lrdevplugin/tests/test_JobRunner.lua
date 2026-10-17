@@ -228,6 +228,86 @@ T.case("processAll 汇总统计", function()
     T.eq(summary.ok, 0)
 end)
 
+
+----------------------------------------------------------------------
+
+T.suite("PhotoResolver / 按路径定位（自动化入口的健壮性）")
+
+local PhotoResolver = require "PhotoResolver"
+
+local BS = string.char(92)   -- 反斜杠，避免在源码里写一堆转义
+
+--- 造一个假目录：exact 是「精确匹配表」，byName 是 findPhotos 的返回值
+local function fakeCatalog(exact, byName)
+    return {
+        findPhotoByPath = function(_, p)
+            return (exact or {})[p]
+        end,
+        findPhotos = function()
+            return byName or {}
+        end,
+    }
+end
+
+local function fakePhoto(path)
+    return {
+        getRawMetadata = function(_, key)
+            if key == "path" then return path end
+            return nil
+        end,
+    }
+end
+
+T.case("原样命中", function()
+    local photo = fakePhoto("C:/p/a.CR3")
+    local got, err = PhotoResolver.findByPath("C:/p/a.CR3",
+        fakeCatalog({ ["C:/p/a.CR3"] = photo }))
+    T.truthy(got ~= nil, "应命中: " .. tostring(err))
+    T.truthy(rawequal(got, photo))
+end)
+
+T.case("正斜杠写成反斜杠也能命中（目录里存的是反斜杠）", function()
+    -- 只有反斜杠形态能命中，正斜杠形态查不到
+    local backPath = "C:" .. BS .. "p" .. BS .. "a.CR3"
+    local photo = fakePhoto(backPath)
+    local got, err = PhotoResolver.findByPath("C:/p/a.CR3",
+        fakeCatalog({ [backPath] = photo }))
+    T.truthy(got ~= nil, "应通过换分隔符命中: " .. tostring(err))
+end)
+
+T.case("大小写不同也能命中（按文件名搜 + 比路径兜底）", function()
+    local upperPath = "C:" .. BS .. "P" .. BS .. "A.CR3"
+    local photo = fakePhoto(upperPath)
+    local got, err = PhotoResolver.findByPath("c:/p/a.CR3",
+        fakeCatalog(nil, { photo }))
+    T.truthy(got ~= nil, "应通过兜底命中: " .. tostring(err))
+end)
+
+T.case("同名但路径不同 → 明确报错指出同名数量", function()
+    local other = fakePhoto("C:" .. BS .. "other" .. BS .. "a.CR3")
+    local got, err = PhotoResolver.findByPath("C:/p/a.CR3",
+        fakeCatalog(nil, { other }))
+    T.eq(got, nil, "不应命中别的同名照片")
+    T.contains(tostring(err), "同名")
+end)
+
+T.case("完全找不到 → 可读错误", function()
+    local got, err = PhotoResolver.findByPath("C:/p/missing.CR3", fakeCatalog(nil, {}))
+    T.eq(got, nil)
+    T.contains(tostring(err), "找不到")
+end)
+
+T.case("空路径 → 直接拒绝", function()
+    local got, err = PhotoResolver.findByPath("", fakeCatalog())
+    T.eq(got, nil)
+    T.contains(tostring(err), "路径为空")
+end)
+
+T.case("normalizeForCompare 归一化分隔符与大小写", function()
+    T.eq(PhotoResolver.normalizeForCompare("C:" .. BS .. "A" .. BS .. "b.CR3"),
+         PhotoResolver.normalizeForCompare("c:/a/B.cr3"))
+end)
+
 ----------------------------------------------------------------------
 
 T.suite("AutomationListener / 手动启停状态机")

@@ -360,26 +360,96 @@ end
 ----------------------------------------------------------------------
 
 --- @return LrPhoto | nil, errString
-function PhotoResolver.findByPath(path)
-    local catalog, err = PhotoResolver.getCatalog()
-    if not catalog then
-        return nil, err
+--- 路径比较用的归一化形式（统一分隔符 + 小写）
+local function normalizeForCompare(p)
+    return (tostring(p):gsub("\\", "/")):lower()
+end
+PhotoResolver.normalizeForCompare = normalizeForCompare
+
+--- 按绝对路径定位照片
+--
+-- 为什么要做多路尝试：
+--   外部工具（Python / 脚本 / AI agent）写出来的 JSON 路径通常用正斜杠，
+--   而 Lightroom 目录里保存的是 Windows 反斜杠；大小写也可能不一致。
+--   而官方文档对 findPhotoByPath 的 caseSensitivity 参数**没有列出任何取值**，
+--   路径分隔符是否宽容也没写 —— 所以这里不猜参数，改用多种形态逐个尝试，
+--   最后再用「按文件名搜 + 自己比路径」兜底。
+--
+-- @param path string 绝对路径
+-- @param catalog LrCatalog|nil 可选注入（便于单测）
+-- @return LrPhoto|nil, errString
+function PhotoResolver.findByPath(path, catalog)
+    if catalog == nil then
+        local err
+        catalog, err = PhotoResolver.getCatalog()
+        if not catalog then
+            return nil, err
+        end
     end
     if Utils.isBlank(path) then
         return nil, "路径为空"
     end
 
-    -- 必须处于 LrTasks 任务中；调用方（Main.lua）已保证
-    local ok, photo = Utils.safeCall("ai-color-find-by-path", function()
-        return catalog:findPhotoByPath(path)
+    -- 必须在 LrTasks 任务中调用
+    local function tryPath(candidate)
+        local ok, photo = Utils.safeCall("ai-color-find-by-path", function()
+            return catalog:findPhotoByPath(candidate)
+        end)
+        if ok and photo ~= nil then
+            return photo
+        end
+        return nil
+    end
+
+    -- 1) 原样
+    local photo = tryPath(path)
+    if photo then
+        return photo
+    end
+
+    -- 2) 换成另一种分隔符再试
+    local altBack  = (path:gsub("/", "\\"))
+    local altFwd   = (path:gsub("\\", "/"))
+    for _, cand in ipairs({ altBack, altFwd }) do
+        if cand ~= path then
+            photo = tryPath(cand)
+            if photo then
+                return photo
+            end
+        end
+    end
+
+    -- 3) 兜底：按文件名搜，再自己比路径（可覆盖大小写与分隔符差异）
+    local leaf = Utils.basename(path)
+    local target = normalizeForCompare(path)
+
+    local ok, photos = Utils.safeCall("ai-color-find-by-name", function()
+        return catalog:findPhotos {
+            searchDesc = {
+                criteria  = "filename",
+                operation = "==",
+                value     = leaf,
+            },
+        }
     end)
-    if not ok then
-        return nil, "findPhotoByPath 调用失败：" .. tostring(photo)
+
+    if ok and type(photos) == "table" then
+        for _, candidate in ipairs(photos) do
+            local okP, cpath = Utils.safeCall("ai-color-candidate-path", function()
+                return candidate:getRawMetadata("path")
+            end)
+            if okP and type(cpath) == "string" and normalizeForCompare(cpath) == target then
+                return candidate
+            end
+        end
+        if #photos > 0 then
+            return nil, string.format(
+                "目录里有 %d 张同名照片（%s），但路径都与 %s 不一致",
+                #photos, tostring(leaf), tostring(path))
+        end
     end
-    if photo == nil then
-        return nil, "目录中找不到路径为 " .. tostring(path) .. " 的照片"
-    end
-    return photo
+
+    return nil, "目录中找不到路径为 " .. tostring(path) .. " 的照片"
 end
 
 --- 按文件名在目录中定位（可能命中多张，这里返回第一张并提示）
