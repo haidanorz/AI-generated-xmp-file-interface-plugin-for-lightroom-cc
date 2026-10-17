@@ -5,6 +5,8 @@
 **给 AI 生成的调色方案一条直接落地的通道**：解析 → 映射 → 校验 → 预览 → 写入照片的
 Develop 设置，全程不创建、也不污染 Lightroom 的预设列表。
 
+这是一个 aicoding 项目，建议配合 agent 使用（见 [MCP 接口](#mcp-接口给-ai-agent-用)）。
+
 > 插件本体位于本仓库的 **`AI-XMP-Color-Importer.lrdevplugin/`** 目录。
 > 在 Lightroom 的「增效工具管理器」中把该文件夹添加进来即可。
 > （仓库名沿用了项目早期的 `AI-generated-xmp-file-interface-plugin-for-lightroom-cc`。）
