@@ -19,10 +19,23 @@ MCP 客户端  ⇄(stdio)⇄  MCP server（本目录）  ⇄(queue/)⇄  Lightro
 
 ## 安装
 
-```bash
-python -m pip install -r requirements.txt
-python -m ai_color_mcp --check --queue-dir "<插件目录>/queue"
+需要 **Python 3.10 或更新**（`mcp` 1.30 的硬要求；本机 `D:\newpy` 是 3.9，
+装不上，别用它）。已经在用的隔离环境是：
+
 ```
+C:/Users/26804/.workbuddy/binaries/python/envs/default/Scripts/python.exe   # 3.13，mcp 1.30.0 已装好
+```
+
+如果换机器需要重装：
+
+```bash
+<python3.10+> -m pip install -r requirements.txt
+<python3.10+> -m ai_color_mcp --check --queue-dir "<插件目录>/queue"
+```
+
+> `requirements.txt` 刻意保持**纯 ASCII**：pip 读取依赖文件时用的是系统 locale
+> 编码（中文 Windows 上是 GBK），带中文注释又不带 UTF-8 BOM 会直接
+> `UnicodeDecodeError` 崩掉。想写中文注释就存成带 BOM 的 UTF-8。
 
 `--check` 不启动 MCP 协议，只打印一次环境自检（目录是否存在、可写、最近的 job），
 排错时先跑它。

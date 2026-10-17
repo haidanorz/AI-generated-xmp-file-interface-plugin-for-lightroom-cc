@@ -1,4 +1,9 @@
-# MCP 适配层依赖（Python 3.10+）
-# 注意：mcp 1.9.x 与 pydantic 2.14 不兼容（找不到 eval_type_backport），
-# 所以这里钉住 1.30.0 —— 装之前先看一眼是不是这个版本。
+# Dependencies for the MCP adapter. Python 3.10 or newer is required.
+#
+# Pin 1.30.0 deliberately: mcp 1.9.x imports eval_type_backport from
+# pydantic, which pydantic 2.14 removed - that pair fails with ImportError.
+#
+# NOTE: this file is intentionally pure ASCII. pip reads requirement files
+# with the system locale codec (GBK on Chinese Windows) unless they carry a
+# UTF-8 BOM, so any non-ASCII comment here breaks "pip install -r".
 mcp==1.30.0
