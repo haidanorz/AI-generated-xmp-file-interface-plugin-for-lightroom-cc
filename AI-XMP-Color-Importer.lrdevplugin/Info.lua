@@ -57,7 +57,7 @@ return {
     LrToolkitIdentifier  = "com.aicolor.xmp-importer",
     LrPluginName         = "AI XMP Color Importer",
 
-    VERSION = { major = 1, minor = 0, revision = 0, build = 8 },
+    VERSION = { major = 1, minor = 0, revision = 0, build = 9 },
 
     ------------------------------------------------------------------
     -- 菜单项

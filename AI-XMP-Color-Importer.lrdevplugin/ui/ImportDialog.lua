@@ -3,9 +3,12 @@
 
     流程：
         Select XMP…  ->  runOpenPanel
-        Analyze      ->  XmpParser.parseFile -> XmpMapping.toDevelopSettings -> Validation.validate
+        Analyze      ->  ApplyEngine.analyze（解析 → 映射 → 校验）
         Preview…     ->  展示将要应用的参数清单
-        Apply        ->  文件名匹配校验 -> 覆盖确认 -> ApplyDevelop.apply -> 报告
+        Apply        ->  ApplyEngine.apply（判定 → 确认 → 写入 → 报告）
+
+    本文件只负责界面：所有判断与写入都在 src/ApplyEngine.lua 里，
+    界面通过 confirm 回调决定「需要人裁决的问题」，其余一律交给引擎。
 
     使用的 API 全部经过核实：
         LrView.osFactory / LrView.bind
@@ -53,10 +56,8 @@ end
 local Utils           = AI_COLOR_IMPORTER.load("src/Utils.lua")
 local Logger          = AI_COLOR_IMPORTER.load("src/Logger.lua")
 local Manifest        = AI_COLOR_IMPORTER.load("manifest.lua")
-local XmpParser       = AI_COLOR_IMPORTER.load("src/XmpParser.lua")
-local XmpMapping      = AI_COLOR_IMPORTER.load("src/XmpMapping.lua")
-local Validation      = AI_COLOR_IMPORTER.load("src/Validation.lua")
 local DevelopSettings = AI_COLOR_IMPORTER.load("src/DevelopSettings.lua")
+local ApplyEngine     = AI_COLOR_IMPORTER.load("src/ApplyEngine.lua")
 local PhotoResolver   = AI_COLOR_IMPORTER.load("src/PhotoResolver.lua")
 local ApplyDevelop    = AI_COLOR_IMPORTER.load("src/ApplyDevelop.lua")
 local ProgressDialog  = AI_COLOR_IMPORTER.load("ui/ProgressDialog.lua")
@@ -153,34 +154,13 @@ ImportDialog.showTextViewer = showTextViewer
 -- 分析（读 XMP -> 映射 -> 校验）
 ----------------------------------------------------------------------
 
---- @return result table|nil, parsed table|nil, errString|nil
+--- 分析一个 XMP：直接转调 ApplyEngine（界面只负责显示，不做判断）
+-- @return analysis table|nil, errString
 local function analyzeFile(xmpPath, cfg)
-    local parsed, err = XmpParser.parseFile(xmpPath)
-    if not parsed then
-        return nil, nil, err
-    end
-
-    local bundle = XmpMapping.toDevelopSettings(parsed, {
+    return ApplyEngine.analyze(xmpPath, {
         applyExtendedFields = cfg.applyExtendedFields,
         logger              = Logger,
     })
-
-    -- 运行期范围：仅当 Develop 模块处于激活状态时 getRange 才有效；
-    -- 失败会被安全调用吞掉并退化为静态建议区间，属预期行为。
-    local runtimeRanges = {}
-    if LrApplicationView then
-        local ok, moduleName = Utils.safeCall("ai-color-current-module", function()
-            return LrApplicationView.getCurrentModuleName()
-        end)
-        if ok and moduleName == "develop" then
-            runtimeRanges = XmpMapping.applyRuntimeRanges(function(param)
-                return ApplyDevelop.getParamRange(param)
-            end)
-        end
-    end
-
-    local result = Validation.validate(bundle, { runtimeRanges = runtimeRanges })
-    return result, parsed, nil
 end
 
 ----------------------------------------------------------------------
@@ -343,9 +323,10 @@ function ImportDialog.run()
     -- 2) 对话框循环
     ----------------------------------------------------------------
     local state = {
-        xmpPath = nil,
-        parsed  = nil,
-        result  = nil,
+        xmpPath  = nil,
+        parsed   = nil,
+        result   = nil,
+        analysis = nil,   -- ApplyEngine.analyze 的完整结果（含 parsed + 校验结果）
     }
 
     local proceed = false
@@ -411,13 +392,14 @@ function ImportDialog.run()
                 cfg.applyExtendedFields = props.applyExt and true or false
                 rememberExtended(cfg.applyExtendedFields)
 
-                local result, parsed, aerr = ProgressDialog.wrap("正在分析 XMP…", function()
+                local analysis, aerr = ProgressDialog.wrap("正在分析 XMP…", function()
                     return analyzeFile(state.xmpPath, cfg)
                 end)
 
-                if result == nil then
-                    state.result = nil
-                    state.parsed = nil
+                if analysis == nil then
+                    state.analysis = nil
+                    state.result   = nil
+                    state.parsed   = nil
                     local s, p = buildSummary(nil, nil)
                     props.summary  = "分析失败。"
                     props.problems = tostring(aerr or "未知错误")
@@ -430,9 +412,11 @@ function ImportDialog.run()
                     return
                 end
 
-                state.result = result
-                state.parsed = parsed
-                local s, p = buildSummary(result, parsed)
+                state.analysis = analysis
+                state.result   = analysis.result
+                state.parsed   = analysis.parsed
+                local result   = analysis.result
+                local s, p = buildSummary(result, analysis.parsed)
                 props.summary  = s
                 props.problems = p
 
@@ -553,185 +537,67 @@ function ImportDialog.run()
             LrDialogs.message("没有可应用的字段",
                 "分析结果里没有任何可写入的 Develop 字段，请检查 XMP 内容。", "warning")
         else
-            -- 有校验错误时先明确告知并确认再写照片：
-            -- 明显非法的字段会被丢弃，其余字段仍可应用，但不该悄悄放行）。
-            local errCount = state.result.counts.errors or 0
-            if errCount > 0 then
-                local msgs = {}
-                for i, e in ipairs(state.result.errors) do
-                    if i > 6 then
-                        msgs[#msgs + 1] = string.format("  … 另有 %d 条", errCount - 6)
-                        break
-                    end
-                    msgs[#msgs + 1] = string.format("  %s：%s",
-                        tostring(e.field), tostring(e.message))
-                end
-
-                local ans = LrDialogs.confirm(
-                    string.format("有 %d 个字段校验未通过，这些字段会被丢弃。", errCount),
-                    table.concat(msgs, "\n") ..
-                    string.format("\n\n其余 %d 个字段仍会正常应用到照片上。要继续吗？",
-                        state.result.counts.settings or 0),
-                    "仍然应用", "取消")
-                if ans == "ok" then
-                    proceed = true
-                end
-            else
-                proceed = true
-            end
+            -- 校验错误 / 源文件不匹配 / 官方 sidecar 等「需要人裁决」的问题，
+            -- 统一由 ApplyEngine 在写入前通过 confirm 回调处理。
+            -- 这里只做初筛：有没有东西可应用。
+            proceed = true
         end
     until proceed
 
     ----------------------------------------------------------------
-    -- 3) 安全校验
+    -- 3) 判定 + 写入（交给 ApplyEngine；它不弹任何对话框）
+    --    需要人裁决的问题通过 confirm 回调交回界面
     ----------------------------------------------------------------
-    local meta = state.parsed and state.parsed.metadata or {}
-
-    -- 3a) XMP 声明的源文件 vs 目标照片
-    local status, detail = PhotoResolver.compareSourceFile(meta.sourceFile, desc)
-    if status == "mismatch" then
-        local ans = LrDialogs.confirm(
-            "XMP 与当前照片可能不匹配。",
-            string.format(
-                "XMP:\n  %s\n\n当前照片:\n  %s\n\n默认行为是取消。只有在你确认这份调色方案本来就该用在这张照片上时，才选择「仍然应用」。",
-                tostring(meta.sourceFile), tostring(desc.fileName)),
-            "仍然应用", "取消")
-        if ans ~= "ok" then
-            Logger.warn("用户因源文件不匹配而取消了应用：" .. tostring(detail), {
-                operation = "APPLY", photo = desc.fileName,
-                xmp = Utils.basename(state.xmpPath), result = "CANCELLED",
-            })
-            return
+    local function uiConfirm(issue)
+        if not Utils.isBlank(issue.actionVerb) and not Utils.isBlank(issue.cancelVerb) then
+            return LrDialogs.confirm(issue.headline, issue.detail or "",
+                issue.actionVerb, issue.cancelVerb) == "ok"
         end
-        Logger.warn("用户选择忽略源文件不匹配：" .. tostring(detail), {
-            operation = "APPLY", photo = desc.fileName, result = "OVERRIDE",
-        })
-    elseif status == "probable" then
-        Logger.info("源文件按宽容规则匹配：" .. tostring(detail), {
-            operation = "APPLY", photo = desc.fileName,
-        })
-    elseif status == "unknown" then
-        Logger.warn(detail, { operation = "APPLY", photo = desc.fileName })
+        -- 没有可选项的问题（例如「没有可应用的字段」）：告知并中止
+        LrDialogs.message(issue.headline, issue.detail or "", "warning")
+        return false
     end
 
-    -- 3b) 该 XMP 是否看起来是 Lightroom 的官方随图配置文件（会被 Lightroom 覆写）
-    local isSidecar, sidecarWhy = PhotoResolver.looksLikeOfficialSidecar(state.xmpPath, desc)
-    if isSidecar then
-        local ans = LrDialogs.confirm(
-            "这个 XMP 看起来是 Lightroom 的官方随图配置文件。",
-            tostring(sidecarWhy) ..
-            "\n\n本插件只读取、不会修改它，但 Lightroom 自身在「自动写入 XMP」开启时可能会覆写它，" ..
-            "从而丢失这份 AI 调色方案。\n\n建议：把 AI 生成的 XMP 另存为不同文件名（例如 IMG_1023__Natural_Warm__AI-v1.xmp）再使用。",
-            "仍然继续", "取消")
-        if ans ~= "ok" then
-            return
-        end
-    end
+    ProgressDialog.working("正在应用 Develop 字段…")
 
-    ----------------------------------------------------------------
-    -- 4) 写入
-    ----------------------------------------------------------------
-    local applyTable = DevelopSettings.toApplyTable(state.result)
-    local historyName = Manifest.historyStepPrefix
-    if meta.presetName and meta.presetName ~= "" then
-        historyName = Manifest.historyStepPrefix .. ": " .. tostring(meta.presetName)
-    end
-
-    local applyResult
-    ProgressDialog.working("正在应用 " .. tostring(Utils.tcount(applyTable)) .. " 个 Develop 字段…")
-    applyResult = ApplyDevelop.apply(photo, applyTable, {
-        historyName = historyName,
-        actionName  = "AI Color: " .. tostring(meta.presetName or "XMP"),
-        timeout     = 60,
-        verify      = cfg.verifyAfterApply,
+    local outcome = ApplyEngine.apply(photo, desc, state.analysis, {
+        confirm = uiConfirm,
+        verify  = cfg.verifyAfterApply,
+        timeout = 60,
     })
 
     ----------------------------------------------------------------
-    -- 5) 报告
+    -- 4) 把结果呈现给用户
     ----------------------------------------------------------------
-    local record = DevelopSettings.buildReportRecord(state.result, {
-        operation     = "APPLY",
-        timestamp     = Utils.timestamp(Utils.platform.now and Utils.platform.now() or 0),
-        photoName     = desc.fileName,
-        xmpName       = Utils.basename(state.xmpPath),
-        presetName    = meta.presetName,
-        sourceFile    = meta.sourceFile,
-        aiVersion     = meta.aiVersion,
-        result        = applyResult.ok and "SUCCESS" or "FAILED",
-    })
-    if not applyResult.ok then
-        record.errors[#record.errors + 1] = { field = "-", message = applyResult.message or "未知失败" }
+    if outcome.skipped then
+        LrDialogs.message("未应用", tostring(outcome.message or "未通过前置校验"), "warning")
+        return
     end
 
-    local reportText = Logger.buildApplyReport(record, true)
-
-    -- 落盘 / 落内存
-    if applyResult.ok then
-        Logger.info("Apply 成功：" .. tostring(applyResult.message), {
-            operation = "APPLY", photo = desc.fileName,
-            xmp = Utils.basename(state.xmpPath), result = "SUCCESS",
-        })
-    else
-        Logger.error("Apply 失败：" .. tostring(applyResult.message), {
-            operation = "APPLY", photo = desc.fileName,
-            xmp = Utils.basename(state.xmpPath), result = "FAILED",
-        })
-    end
-    Logger.info(reportText, { operation = "APPLY_REPORT", photo = desc.fileName })
-
-    ----------------------------------------------------------------
-    -- 读回校验结果
-    ----------------------------------------------------------------
-    if applyResult.ok and applyResult.verify then
-        local v = applyResult.verify
-        if v.readError then
-            Logger.warn("读回校验不可用：" .. tostring(v.readError), { operation = "VERIFY" })
-        elseif #v.mismatches > 0 then
-            local parts = {}
-            for _, m in ipairs(v.mismatches) do
-                parts[#parts + 1] = string.format("%s: 写入 %s / 读回 %s",
-                    tostring(m.field), tostring(m.want), tostring(m.got))
-            end
-            Logger.warn(string.format(
-                "读回校验发现 %d 处不一致（Lightroom 的 develop 读回存在已知滞后，通常稍后会一致）：%s",
-                #v.mismatches, table.concat(parts, "; ")),
-                { operation = "VERIFY", result = "MISMATCH" })
-        else
-            Logger.info(string.format("读回校验通过（比对 %d 项）", v.checked or 0),
-                { operation = "VERIFY", result = "OK" })
-        end
-    end
-
-    ----------------------------------------------------------------
-    -- 6) 给用户结果
-    ----------------------------------------------------------------
-    if applyResult.ok then
+    if outcome.ok then
         if cfg.switchToDevelopAfterApply and LrApplicationView then
             ApplyDevelop.goToDevelopModule()
         end
 
-        local headline = string.format(
-            "已应用 %d 个 Develop 字段到 %s。",
-            Utils.tcount(applyTable), tostring(desc.fileName))
+        local headline = string.format("已应用 %d 个 Develop 字段到 %s。",
+            outcome.applied or 0, tostring(desc.fileName))
 
         local extra = ""
-        local c = state.result.counts or {}
+        local c = outcome.counts or {}
         if (c.clamped or 0) > 0 or (c.unsupported or 0) > 0 or (c.errors or 0) > 0 then
             extra = string.format(
                 "\n\n注意：收拢 %d · 不支持 %d · 错误 %d（细节见下方报告与日志）。",
                 c.clamped or 0, c.unsupported or 0, c.errors or 0)
         end
 
-        Logger.info(headline, { operation = "APPLY", photo = desc.fileName, result = "SUCCESS" })
-        showTextViewer("AI Color — 应用结果", headline .. extra .. "\n\n" .. reportText)
-
-        -- 原始 XMP 只读声明
         Logger.info("原始 XMP 文件未被修改（只读）", {
             operation = "APPLY", xmp = Utils.basename(state.xmpPath),
         })
+        showTextViewer("AI Color — 应用结果",
+            headline .. extra .. "\n\n" .. tostring(outcome.reportText))
     else
-        LrDialogs.message("应用失败", tostring(applyResult.message or "未知错误"), "critical")
-        showTextViewer("AI Color — 失败报告", reportText)
+        LrDialogs.message("应用失败", tostring(outcome.message or "未知错误"), "critical")
+        showTextViewer("AI Color — 失败报告", tostring(outcome.reportText))
     end
 end
 

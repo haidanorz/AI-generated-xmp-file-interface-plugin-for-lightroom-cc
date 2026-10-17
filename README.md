@@ -517,6 +517,7 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
     │   ├── Validation.lua               ← 范围校验（纯 Lua）
     │   ├── DevelopSettings.lua          ← 参数装配与预览（纯 Lua）
     │   ├── PhotoResolver.lua            ← 目标照片解析与来源匹配
+    │   ├── ApplyEngine.lua              ← 无 UI 应用引擎（判定 / 确认 / 写入）
     │   └── ApplyDevelop.lua             ← 唯一的写入点
     ├── ui/
     │   ├── ImportDialog.lua             ← 主界面
@@ -533,20 +534,25 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ```bash
 # 推荐：在真实的 Lua 5.1（Lightroom 内嵌版本）上运行
 # 依赖：pip install lupa
-python tests/run_lua51.py            # 158 个用例
+python tests/run_lua51.py            # 186 个用例
 python tests/run_lua51.py luajit21   # 换 LuaJIT 2.1 交叉验证
 python tests/run_lua51.py lua54      # 换 Lua 5.4 交叉验证
 ```
 
 | 运行时 | 结果 |
 |---|---|
-| Lua 5.1（lupa） | 158 passed / 0 failed |
-| LuaJIT 2.1（lupa） | 158 passed / 0 failed |
-| Lua 5.4（lupa） | 157 passed / 0 failed |
+| Lua 5.1（lupa） | 186 passed / 0 failed |
+| LuaJIT 2.1（lupa） | 186 passed / 0 failed |
+| Lua 5.4（lupa） | 185 passed / 0 failed |
 
 覆盖内容：解析器（命名空间、`rdf:Seq` / `Bag` / `Alt`、实体、CDATA、BOM、错误路径）、
 字段映射与类型转换、白平衡与色调曲线转换、颜色分级别名、范围校验与收拢、
-来源匹配，以及端到端加载检查。
+来源匹配、应用判定与安全阀，以及端到端加载检查。
+
+**核心逻辑与界面是分开的。** `src/ApplyEngine.lua` 不弹任何对话框：
+所有「需要人裁决」的情况（源文件不匹配、官方随图 XMP、字段校验有错）
+都以结构化问题的形式交出，由调用方决定 —— 界面用对话框问，脚本用策略自动决定
+（默认：不匹配与校验错误则跳过该照片，不写入）。所以这套逻辑可以直接被自动化复用。
 
 调试提示：测试会同时把完整报告写到 `tests/.last-run.log`。
 

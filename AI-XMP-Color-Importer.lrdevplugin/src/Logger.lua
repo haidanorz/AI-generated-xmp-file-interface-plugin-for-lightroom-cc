@@ -127,6 +127,14 @@ function Logger.emit(level, message, context)
         level = "info"
     end
 
+    -- 低于当前配置级别的日志直接丢弃。
+    -- 默认级别是 info，因此字段级的 debug 日志（每次 Apply 有几十条）不会进日志文件，
+    -- 只在需要排错时把级别调成 debug 才看得到。
+    local threshold = Logger.LEVELS[state.level] or Logger.LEVELS.info
+    if Logger.LEVELS[level] < threshold then
+        return nil
+    end
+
     local now = Utils.platform.now and Utils.platform.now() or 0
     local ts = Utils.timestamp(now)
     local line = string.format("[%s] %-5s %s", ts, level:upper(), tostring(message))
@@ -141,7 +149,7 @@ function Logger.emit(level, message, context)
     }
     push(entry)
 
-    -- 若 context 带 field 信息，把 rawValue/convertedValue 也追加到落盘行，满足 §21
+    -- 若 context 带 field 信息，把 rawValue/convertedValue 也追加到落盘行
     local extra = ""
     if type(context) == "table" then
         local bits = {}

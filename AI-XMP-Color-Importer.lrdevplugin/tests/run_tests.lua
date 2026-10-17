@@ -87,6 +87,8 @@ local MODULES = {
     -- 纯 Lua 核心
     "Utils", "Logger", "manifest", "XmpParser", "XmpMapping",
     "Validation", "DevelopSettings",
+    -- 无 UI 应用引擎
+    "ApplyEngine",
     -- Lightroom 适配层（import 已改为延迟获取，因此也应能加载）
     "PhotoResolver", "ApplyDevelop",
     -- UI
@@ -667,6 +669,7 @@ end)
 require "test_XmpParser"
 require "test_XmpMapping"
 require "test_Validation"
+require "test_ApplyEngine"
 
 ----------------------------------------------------------------------
 -- 收尾

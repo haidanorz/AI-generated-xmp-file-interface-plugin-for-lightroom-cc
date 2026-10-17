@@ -348,6 +348,23 @@ T.case("Logger 报告包含 Applied / Ignored / Unsupported / Result 段", funct
     T.contains(text, "PresetType", "应列出被忽略的 PresetType")
 end)
 
+T.case("日志级别过滤生效（否则字段级 debug 会淹掉日志文件）", function()
+    local Logger = require "Logger"
+
+    Logger.configure { level = "error", echo = false }
+    T.eq(Logger.debug("d"), nil, "低于阈值的 debug 应被丢弃")
+    T.eq(Logger.info("i"), nil, "低于阈值的 info 应被丢弃")
+    T.eq(Logger.warn("w"), nil, "低于阈值的 warn 应被丢弃")
+    T.truthy(Logger.error("e") ~= nil, "达到阈值的应产出")
+
+    Logger.configure { level = "info" }
+    T.eq(Logger.debug("d"), nil, "info 级别下 debug 仍应被丢弃")
+    T.truthy(Logger.info("i") ~= nil, "info 级别下 info 应产出")
+    T.truthy(Logger.warn("w") ~= nil, "info 级别下 warn 应产出")
+
+    Logger.configure { level = "error", echo = false }
+end)
+
 ----------------------------------------------------------------------
 
 T.suite("PhotoResolver / 文件名匹配")
