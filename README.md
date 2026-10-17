@@ -97,7 +97,7 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 
 ## 准备 XMP 文件
 
-> 想先跑一遍看看效果，可以直接用仓库里的 `test-xmp/`：三个「海岸旷野」示例方案，
+> 想先跑一遍看看效果，可以直接用仓库里的 `example-xmp/`：三个「海岸旷野」示例方案，
 > 无需自己准备 XMP。
 
 一份可用的 XMP 至少要有这些内容（节选）：
@@ -661,7 +661,7 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ├── README.md                            ← 本文件
 ├── LICENSE
 ├── .gitignore
-├── test-xmp/                            ← 三个示例调色方案（可直接试）
+├── example-xmp/                         ← 三个示例调色方案（可直接试）
 ├── AI-XMP-Color-Importer.lrdevplugin/     ← 插件本体（在 Lightroom 中指向这个文件夹）
 │   ├── Info.lua                         ← 插件清单（菜单注册）
 │   ├── Main.lua                         ← 主界面入口
