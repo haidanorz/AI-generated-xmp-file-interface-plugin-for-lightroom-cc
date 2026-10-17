@@ -229,6 +229,33 @@ T.case("processAll 汇总统计", function()
 end)
 
 
+T.case("归档失败时兜底删除，避免 job 留在 inbox 被反复处理", function()
+    JobRunner.setQueueDir(QUEUE)
+    JobRunner.ensureDirs()
+    local path = jobFile("stuck.json", { xmp = BASIC_XMP, photos = { "D:/p/a.CR3" } })
+    T.truthy(Utils.platform.fileExists(path), "前置：job 应已写入")
+
+    local savedMove   = Utils.platform.moveFile
+    local savedDelete = Utils.platform.deleteFile
+    local deleteCalled = false
+
+    Utils.platform.moveFile = function() return nil, "模拟移动失败" end
+    Utils.platform.deleteFile = function(p)
+        deleteCalled = true
+        return savedDelete(p)
+    end
+
+    local okRun, archived = pcall(JobRunner.archiveJob, path, true)
+
+    Utils.platform.moveFile   = savedMove
+    Utils.platform.deleteFile = savedDelete
+
+    T.truthy(okRun, "archiveJob 不应抛错")
+    T.falsy(archived, "归档应报告失败")
+    T.truthy(deleteCalled, "应尝试兜底删除")
+    T.falsy(Utils.platform.fileExists(path), "job 不应还留在 inbox 里")
+end)
+
 ----------------------------------------------------------------------
 
 T.suite("PhotoResolver / 按路径定位（自动化入口的健壮性）")

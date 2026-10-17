@@ -75,7 +75,11 @@ end
 -- 各平台能力的 Lightroom 实现
 ----------------------------------------------------------------------
 
-local function buildPlatform(pluginRoot)
+-- 注意：这里接收 Utils，是为了能用 Utils.safeCall 而不是原生 pcall。
+-- LrFileUtils 里 readFile / exists 不 yield，但 **move / delete / 目录操作会 yield**，
+-- 用原生 pcall 包住它们会报 "Yielding is not allowed within a C or metamethod call"，
+-- 而且错误会被 pcall 吞掉（曾经导致 job 归档静默失败、卡在 inbox 里反复重试）。
+local function buildPlatform(pluginRoot, Utils)
     local LrFileUtils = import "LrFileUtils"
     local LrPathUtils = import "LrPathUtils"
 
@@ -127,7 +131,9 @@ local function buildPlatform(pluginRoot)
         fileExists = lrFileExists,
 
         makeDirectory = function(path)
-            local ok, err = pcall(LrFileUtils.createAllDirectories, path)
+            local ok, err = Utils.safeCall("ai-color-mkdir", function()
+                return LrFileUtils.createAllDirectories(path)
+            end)
             if not ok then
                 return false, tostring(err)
             end
@@ -140,7 +146,7 @@ local function buildPlatform(pluginRoot)
             if type(dirPath) ~= "string" or dirPath == "" then
                 return out
             end
-            local ok = pcall(function()
+            local ok = Utils.safeCall("ai-color-list-files", function()
                 for filePath in LrFileUtils.files(dirPath) do
                     out[#out + 1] = filePath
                 end
@@ -152,8 +158,11 @@ local function buildPlatform(pluginRoot)
             return out
         end,
 
+        -- LrFileUtils.move 会 yield，必须走 safeCall
         moveFile = function(srcPath, destPath)
-            local ok, err = pcall(LrFileUtils.move, srcPath, destPath)
+            local ok, err = Utils.safeCall("ai-color-move-file", function()
+                return LrFileUtils.move(srcPath, destPath)
+            end)
             if not ok then
                 return nil, tostring(err)
             end
@@ -161,7 +170,9 @@ local function buildPlatform(pluginRoot)
         end,
 
         chooseUniqueFile = function(path)
-            local ok, unique = pcall(LrFileUtils.chooseUniqueFileName, path)
+            local ok, unique = Utils.safeCall("ai-color-unique-file", function()
+                return LrFileUtils.chooseUniqueFileName(path)
+            end)
             if ok and type(unique) == "string" then
                 return unique
             end
@@ -169,7 +180,9 @@ local function buildPlatform(pluginRoot)
         end,
 
         deleteFile = function(path)
-            local ok = pcall(LrFileUtils.delete, path)
+            local ok = Utils.safeCall("ai-color-delete-file", function()
+                return LrFileUtils.delete(path)
+            end)
             return ok
         end,
 
@@ -290,7 +303,7 @@ function Boot.prepare()
     ----------------------------------------------------------------
     -- 4) 平台注入
     ----------------------------------------------------------------
-    Utils.configurePlatform(buildPlatform(pluginRoot))
+    Utils.configurePlatform(buildPlatform(pluginRoot, Utils))
 
     ----------------------------------------------------------------
     -- 5) 日志

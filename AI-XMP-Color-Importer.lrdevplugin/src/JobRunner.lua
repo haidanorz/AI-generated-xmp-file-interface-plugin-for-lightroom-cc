@@ -295,13 +295,26 @@ function JobRunner.archiveJob(jobPath, succeeded)
     end
 
     local ok, err = Utils.platform.moveFile(jobPath, dest)
-    if not ok then
-        Logger.warn("归档 job 失败（原文件保留在 inbox）：" .. tostring(err), {
+    if ok then
+        return true
+    end
+
+    -- 归档失败必须兜底：留在 inbox 里会被每秒重复处理，
+    -- dryRun 下只是反复覆盖结果，真跑起来则会重复写照片。
+    Logger.warn("归档 job 失败，尝试直接删除：" .. tostring(err), {
+        operation = "JOB", jobId = Utils.basename(jobPath),
+    })
+
+    if Utils.platform.deleteFile and Utils.platform.deleteFile(jobPath) then
+        Logger.warn("已删除未归档的 job（结果文件仍保留）", {
             operation = "JOB", jobId = Utils.basename(jobPath),
         })
         return false
     end
-    return true
+
+    Logger.error("job 既无法归档也无法删除，会停留在 inbox 里被反复处理：" ..
+        tostring(jobPath), { operation = "JOB", result = "STUCK" })
+    return false
 end
 
 ----------------------------------------------------------------------
