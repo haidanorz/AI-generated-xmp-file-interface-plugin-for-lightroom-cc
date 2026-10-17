@@ -23,6 +23,7 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 - [准备 XMP 文件](#准备-xmp-文件)
 - [使用步骤](#使用步骤)
 - [自动化模式（无点击）](#自动化模式无点击)
+- [MCP 接口（给 AI Agent 用）](#mcp-接口给-ai-agent-用)
 - [应用之后发生什么](#应用之后发生什么)
 - [支持的字段](#支持的字段)
 - [字段转换说明](#字段转换说明)
@@ -47,6 +48,8 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 - **支持 92 个 Develop 字段**（其中 65 个默认启用，27 个扩展字段可选）。
 - **可脚本化。** 除了手动操作，也能通过「队列目录 + job.json」全自动应用，
   适合批量或外部程序驱动（见[自动化模式](#自动化模式无点击)）。
+- **可选 MCP 接口。** 想用 AI Agent 对话驱动，就用仓库里的 `mcp/`（Python，可选安装）；
+  不装它插件照常工作（见 [MCP 接口](#mcp-接口给-ai-agent-用)）。
 
 ---
 
@@ -58,6 +61,7 @@ XMP 文件  →  解析  →  转换为 SDK 参数  →  校验  →  预览  �
 | 已验证版本 | Lightroom Classic 14.5.1 |
 | 操作系统 | Windows / macOS |
 | 额外依赖 | 无 |
+| MCP 适配层（可选） | Python 3.10+ 与 `mcp` 1.30（只有用 `mcp/` 时才需要） |
 
 ---
 
@@ -308,6 +312,35 @@ queue/
 - 处理完的 job 一定移出 `inbox/`（失败件也移走），不会反复重试
 - 万一归档失败，同一份内容也不会被每秒重复处理（按「路径 + 文件大小」判断）
 - 所有动作照常写日志
+
+---
+
+## MCP 接口（给 AI Agent 用）
+
+仓库里的 `mcp/` 是一个 [MCP](https://modelcontextprotocol.io) 适配层：
+把上面这套文件队列包装成 4 个工具，让 Claude Desktop / WorkBuddy 这类客户端
+在对话里直接调色。
+
+| 工具 | 作用 | 会改照片吗 |
+|---|---|---|
+| `ai_color_dry_run` | 解析 XMP、算出要写多少字段、确认照片在目录里 | 否 |
+| `ai_color_apply` | 真正写入 Develop 设置（可在 Lightroom 里撤销） | **是** |
+| `ai_color_get_result` | 按 job 标识补查结果（超时后、或回看历史） | 否 |
+| `ai_color_queue_status` | 队列目录自检 + 最近 job（排错第一步） | 否 |
+
+```
+MCP 客户端  ⇄(stdio)⇄  mcp/（Python）  ⇄(queue/)⇄  Lightroom 插件
+```
+
+**为什么需要这一层**：Lightroom 的 Lua 沙箱没有 `socket` / `http` / `package`，
+插件**不可能自己监听端口去当 MCP server**。所以只能由一个独立进程扮演适配器，
+用文件队列跟插件通信 —— 相当于把「自动化模式」变成 AI 可以调用的接口。
+
+- 安装、客户端配置、返回结构、排错表：见 **[mcp/README.md](mcp/README.md)**
+- 需要 **Python 3.10+**；写照片之前建议先跑 `ai_color_dry_run`
+- 调用前必须在 Lightroom 里开启监听器（图库 ▸ 增效工具扩展 ▸
+  Start Automation Listener…），否则 job 会一直等在 `inbox/`
+- 返回里的 `verify` 段需要插件 **build 16+**：`mismatches: 0` 才说明字段真的落地了
 
 ## 应用之后发生什么
 
@@ -620,34 +653,42 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ├── README.md                            ← 本文件
 ├── LICENSE
 ├── .gitignore
-└── AI-XMP-Color-Importer.lrdevplugin/     ← 插件本体（在 Lightroom 中指向这个文件夹）
-    ├── Info.lua                         ← 插件清单（菜单注册）
-    ├── Main.lua                         ← 主界面入口
-    ├── AutomationStart.lua              ← 菜单：开启自动化监听（手动）
-    ├── AutomationStop.lua               ← 菜单：停止自动化监听
-    ├── AutomationStatus.lua             ← 菜单：诊断报告
-    ├── manifest.lua                     ← 运行时清单与默认配置
-    ├── src/
-    │   ├── Boot.lua                     ← 统一启动引导（加载器 / 平台注入 / 日志）
-    │   ├── Loader.lua                   ← 模块加载器
-    │   ├── Utils.lua                    ← 工具 + 平台抽象
-    │   ├── Logger.lua                   ← 日志与结构化报告
-    │   ├── Json.lua                     ← JSON 编解码（自动化队列用）
-    │   ├── XmpParser.lua                ← XMP / XML 解析器（纯 Lua）
-    │   ├── XmpMapping.lua               ← 字段映射表（唯一事实来源）
-    │   ├── Validation.lua               ← 范围校验（纯 Lua）
-    │   ├── DevelopSettings.lua          ← 参数装配与预览（纯 Lua）
-    │   ├── PhotoResolver.lua            ← 目标照片解析与来源匹配
-    │   ├── ApplyEngine.lua              ← 无 UI 应用引擎（判定 / 确认 / 写入）
-    │   ├── ApplyDevelop.lua             ← 唯一的写入点
-    │   ├── JobRunner.lua                ← 自动化队列（job.json → result.json）
-    │   ├── AutomationListener.lua       ← 轮询监听器（必须手动开启）
-    │   └── Diagnostics.lua              ← 自检报告（状态 + 文件操作自检 + 日志）
-    ├── ui/
-    │   ├── ImportDialog.lua             ← 主界面
-    │   └── ProgressDialog.lua           ← 进度提示
-    └── tests/                           ← 单元测试与 fixtures
+├── test-xmp/                            ← 三个示例调色方案（可直接试）
+├── AI-XMP-Color-Importer.lrdevplugin/     ← 插件本体（在 Lightroom 中指向这个文件夹）
+│   ├── Info.lua                         ← 插件清单（菜单注册）
+│   ├── Main.lua                         ← 主界面入口
+│   ├── AutomationStart.lua              ← 菜单：开启自动化监听（手动）
+│   ├── AutomationStop.lua               ← 菜单：停止自动化监听
+│   ├── AutomationStatus.lua             ← 菜单：诊断报告
+│   ├── manifest.lua                     ← 运行时清单与默认配置
+│   ├── src/
+│   │   ├── Boot.lua                     ← 统一启动引导（加载器 / 平台注入 / 日志）
+│   │   ├── Loader.lua                   ← 模块加载器
+│   │   ├── Utils.lua                    ← 工具 + 平台抽象
+│   │   ├── Logger.lua                   ← 日志与结构化报告
+│   │   ├── Json.lua                     ← JSON 编解码（自动化队列用）
+│   │   ├── XmpParser.lua                ← XMP / XML 解析器（纯 Lua）
+│   │   ├── XmpMapping.lua               ← 字段映射表（唯一事实来源）
+│   │   ├── Validation.lua               ← 范围校验（纯 Lua）
+│   │   ├── DevelopSettings.lua          ← 参数装配与预览（纯 Lua）
+│   │   ├── PhotoResolver.lua            ← 目标照片解析与来源匹配
+│   │   ├── ApplyEngine.lua              ← 无 UI 应用引擎（判定 / 确认 / 写入）
+│   │   ├── ApplyDevelop.lua             ← 唯一的写入点
+│   │   ├── JobRunner.lua                ← 自动化队列（job.json → result.json）
+│   │   ├── AutomationListener.lua       ← 轮询监听器（必须手动开启）
+│   │   └── Diagnostics.lua              ← 自检报告（状态 + 文件操作自检 + 日志）
+│   ├── ui/
+│   │   ├── ImportDialog.lua             ← 主界面
+│   │   └── ProgressDialog.lua           ← 进度提示
+│   └── tests/                           ← 单元测试与 fixtures
+└── mcp/                                 ← MCP 适配层（可选，给 AI Agent 用）
+    ├── ai_color_mcp/
+    │   ├── queue_bridge.py              ← 队列读写、等待与失败翻译（难点都在这里）
+    │   └── server.py                    ← FastMCP 工具注册
+    ├── tests/                           ← 假插件线程，不需要 Lightroom
+    └── mcp.example.json                 ← 客户端配置样例
 ```
+
 
 ---
 
@@ -658,16 +699,26 @@ AI-generated-xmp-file-interface-plugin-for-lightroom-cc/
 ```bash
 # 推荐：在真实的 Lua 5.1（Lightroom 内嵌版本）上运行
 # 依赖：pip install lupa
-python tests/run_lua51.py            # 242 个用例
+python tests/run_lua51.py            # 260 个用例
 python tests/run_lua51.py luajit21   # 换 LuaJIT 2.1 交叉验证
 python tests/run_lua51.py lua54      # 换 Lua 5.4 交叉验证
 ```
 
 | 运行时 | 结果 |
 |---|---|
-| Lua 5.1（lupa） | 242 passed / 0 failed |
-| LuaJIT 2.1（lupa） | 242 passed / 0 failed |
-| Lua 5.4（lupa） | 240 passed / 0 failed |
+| Lua 5.1（lupa） | 260 passed / 0 failed |
+| LuaJIT 2.1（lupa） | 260 passed / 0 failed |
+| Lua 5.4（lupa） | 258 passed / 0 failed |
+
+（Lua 5.4 少的两个是沙箱用例：`setfenv` / `chunk` 在 5.4 里不可用，自动跳过。）
+
+MCP 适配层是独立的 Python 包，测试用假插件线程跑，同样不需要 Lightroom：
+
+```bash
+cd mcp
+python -m unittest discover -s tests -t .    # 34 个用例
+python tests/smoke_stdio.py                  # 真起 stdio server，列出工具并自检
+```
 
 覆盖内容：解析器（命名空间、`rdf:Seq` / `Bag` / `Alt`、实体、CDATA、BOM、错误路径）、
 字段映射与类型转换、白平衡与色调曲线转换、颜色分级别名、范围校验与收拢、

@@ -1,8 +1,10 @@
-# AI XMP Color Importer — MCP 适配层（Phase A）
+# AI XMP Color Importer — MCP 适配层
 
 把 Lightroom 插件的文件队列包装成 [MCP](https://modelcontextprotocol.io) 工具，
 让 Claude Desktop / WorkBuddy / 任意 Agent 能在对话里直接给照片上色，
 并拿到结构化的结果（写了几张、哪些字段没落地）。
+
+> 这一层是**可选的**：不用 AI Agent 的话，插件本身（界面 + 自动化队列）完全独立可用。
 
 ## 为什么必须多这一层
 
@@ -19,18 +21,19 @@ MCP 客户端  ⇄(stdio)⇄  MCP server（本目录）  ⇄(queue/)⇄  Lightro
 
 ## 安装
 
-需要 **Python 3.10 或更新**（`mcp` 1.30 的硬要求；本机 `D:\newpy` 是 3.9，
-装不上，别用它）。已经在用的隔离环境是：
-
-```
-C:/Users/26804/.workbuddy/binaries/python/envs/default/Scripts/python.exe   # 3.13，mcp 1.30.0 已装好
-```
-
-如果换机器需要重装：
+需要 **Python 3.10 或更新**（`mcp` 1.30 的硬要求，3.9 装不上）。
+建议用独立虚拟环境，避免污染系统 Python：
 
 ```bash
-<python3.10+> -m pip install -r requirements.txt
-<python3.10+> -m ai_color_mcp --check --queue-dir "<插件目录>/queue"
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt   # Windows
+# .venv/bin/python -m pip install -r requirements.txt     # macOS / Linux
+```
+
+装完先自检一次：
+
+```bash
+.venv/Scripts/python -m ai_color_mcp --check --queue-dir "<插件目录>/queue"
 ```
 
 > `requirements.txt` 刻意保持**纯 ASCII**：pip 读取依赖文件时用的是系统 locale
@@ -47,8 +50,8 @@ C:/Users/26804/.workbuddy/binaries/python/envs/default/Scripts/python.exe   # 3.
 
 ```bash
 # 想查完整历史就先关掉清理，或者调大保留份数
-<python> -m ai_color_mcp --keep-results 0      # 不清理
-<python> -m ai_color_mcp --keep-results 100    # 保留 100 份
+.venv/Scripts/python -m ai_color_mcp --keep-results 0      # 不清理
+.venv/Scripts/python -m ai_color_mcp --keep-results 100    # 保留 100 份
 ```
 
 清理是纯粹的收尾动作——**失败不会影响调用结果**（照片写没写成功只看 `applied`
@@ -115,18 +118,19 @@ C:/Users/26804/.workbuddy/binaries/python/envs/default/Scripts/python.exe   # 3.
 | 写中文路径失败 | 队列目录必须是纯 ASCII（插件用 Lua `io` 写结果，Windows 上是 ANSI fopen） | 把插件装在 ASCII 路径下 |
 | 结果里没有 `verify` | 插件版本 < build 16 | 重载插件 |
 
-## Phase A 的边界
+## 当前边界
 
 - **没有 `analyze` / `diagnose`**：现有 job 契约要求 `photos` 非空，
   拿不到「只解析 XMP」的报告；诊断也要插件主动跑。两者都要等插件端加
-  `action` 字段（Phase B）。
+  `action` 字段。
 - 每次调用串行执行：Lightroom 的写权限是全局锁，并发没有收益。
 - 一次最多 50 张照片（插件端安全阀）。
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -t . -v
+python -m unittest discover -s tests -t .    # 34 个用例
+python tests/smoke_stdio.py                  # 真起 stdio server，列工具 + 自检
 ```
 
 `tests/test_queue_bridge.py` 用一个假插件线程覆盖整条链路，包括
