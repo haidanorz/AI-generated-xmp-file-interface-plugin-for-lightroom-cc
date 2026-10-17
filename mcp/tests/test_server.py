@@ -51,6 +51,24 @@ class ToolSchemaTest(unittest.TestCase):
         self.assertIn("不修改", self.tools["ai_color_dry_run"].description)
 
 
+class VersionNoticeTest(unittest.TestCase):
+    def test_build_number_parsing(self) -> None:
+        self.assertEqual(server.build_number("1.0.0 (build 16)"), 16)
+        self.assertEqual(server.build_number("1.0.0 (build 14)"), 14)
+        self.assertEqual(server.build_number(None), 0)
+        self.assertEqual(server.build_number("garbage"), 0)
+
+    def test_old_build_warns_about_missing_verify(self) -> None:
+        notice = server.version_notice("1.0.0 (build 14)")
+        self.assertIsNotNone(notice)
+        self.assertIn("verify", notice)
+        self.assertIn("重新加载增效工具", notice)
+
+    def test_current_build_has_no_notice(self) -> None:
+        self.assertIsNone(server.version_notice("1.0.0 (build 16)"))
+        self.assertIsNone(server.version_notice(None))
+
+
 class ToolBehaviourTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

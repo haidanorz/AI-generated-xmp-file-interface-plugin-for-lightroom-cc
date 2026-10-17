@@ -84,6 +84,36 @@ def bridge() -> QueueBridge:
     return _bridge
 
 
+MIN_VERIFY_BUILD = 16
+
+
+def build_number(plugin_version: str | None) -> int:
+    """从 "1.0.0 (build 16)" 里取出 16；认不出来就返回 0。"""
+    if not plugin_version:
+        return 0
+    try:
+        tail = str(plugin_version).rsplit("build ", 1)[1]
+        return int("".join(ch for ch in tail if ch.isdigit()) or 0)
+    except (IndexError, ValueError):
+        return 0
+
+
+def version_notice(plugin_version: str | None) -> str | None:
+    """低于 build 16 时明确告诉调用方：结果里不会有 verify。
+
+    真机踩过：manifest 在插件首次 Boot 时被缓存，重载文件后可能仍报旧版本，
+    而"跑新代码、报旧版本号"会让人误判校验功能没生效。
+    """
+    build = build_number(plugin_version)
+    if 0 < build < MIN_VERIFY_BUILD:
+        return (
+            f"插件版本 {plugin_version} 早于 build {MIN_VERIFY_BUILD}："
+            "本次结果里不会有 verify 数据。请在 Lightroom 里重新加载增效工具"
+            "（文件 ▸ 增效工具 ▸ 重新加载增效工具）后再试。"
+        )
+    return None
+
+
 def _call(
     xmp: str,
     photos: Iterable[str],
@@ -116,6 +146,10 @@ def _call(
     payload = summarize(result, job_id, elapsed)
 
     # 温和提示，不改变 ok 判定
+    notice_version = version_notice(payload.get("plugin_version"))
+    if notice_version:
+        payload["notice_version"] = notice_version
+
     if not dry_run and payload["ok"]:
         mismatched = [p for p in payload["photos"] if (p["verify"] or {}).get("mismatches")]
         if mismatched:
@@ -124,16 +158,6 @@ def _call(
                 "详见 photos[].verify.details（Lightroom 的读回存在已知滞后，"
                 "多数稍后会一致；若持续不一致，多半是这类字段被 SDK 忽略）"
             )
-        if payload["plugin_version"] and "build 1" in str(payload["plugin_version"]):
-            try:
-                build = int(str(payload["plugin_version"]).rsplit("build ", 1)[1].rstrip(")"))
-            except (IndexError, ValueError):
-                build = 0
-            if 0 < build < 16:
-                payload["notice_version"] = (
-                    f"插件版本 {payload['plugin_version']} 早于 build 16，"
-                    "结果里不会有 verify 数据；请重载插件后再试"
-                )
     return payload
 
 
