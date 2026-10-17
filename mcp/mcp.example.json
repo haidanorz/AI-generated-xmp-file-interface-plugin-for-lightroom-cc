@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ai-color-importer": {
+      "command": "python",
+      "args": [
+        "-m",
+        "ai_color_mcp",
+        "--queue-dir",
+        "C:/Users/<你的用户名>/Pictures/Lightroom/AI-XMP-Color-Importer.lrdevplugin/queue"
+      ],
+      "cwd": "C:/path/to/AI-generated-xmp-file-interface-plugin-for-lightroom-cc/mcp"
+    }
+  }
+}
