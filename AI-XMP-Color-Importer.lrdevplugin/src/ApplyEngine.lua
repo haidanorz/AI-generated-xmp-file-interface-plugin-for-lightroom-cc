@@ -19,7 +19,8 @@
         ApplyEngine.runOne(photo, desc, xmpPath, opts)      → outcome（analyze + apply）
 
     outcome 结构：
-        { ok, stage, message, skipped, applied, counts, issues, verify, reportText }
+        { ok, stage, message, skipped, applied, counts, issues, verify,
+          verifySummary, reportText }
 --]]
 
 local Utils           = AI_COLOR_IMPORTER.load("src/Utils.lua")
@@ -313,6 +314,7 @@ function ApplyEngine.apply(photo, desc, analysis, opts)
         counts  = {},
         issues  = {},
         verify  = nil,
+        verifySummary = nil,
         reportText = nil,
     }
 
@@ -417,6 +419,8 @@ function ApplyEngine.apply(photo, desc, analysis, opts)
     outcome.message = applyResult.message
     outcome.applied = Utils.tcount(applyTable)
     outcome.verify  = applyResult.verify
+    -- 可落盘的摘要：结果 JSON / 界面都从这里取，避免"校验跑了但没人看得见"
+    outcome.verifySummary = ApplyDevelop.summarizeVerify(applyResult.verify)
     outcome.reportText = buildReport(outcome.ok and "SUCCESS" or "FAILED",
         (not outcome.ok) and (applyResult.message or "未知失败") or nil)
 

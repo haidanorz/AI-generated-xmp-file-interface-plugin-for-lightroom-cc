@@ -152,9 +152,26 @@ end
 
 ----------------------------------------------------------------------
 
---- 读回并比对。返回 { checked, mismatches = {...}, readError }
+--- 数值容差：Lightroom 内部对滑块值有精度截断（例如 0.35 读回 0.349999）
+local NUMBER_TOLERANCE = 0.02
+
+--- 枚举 / 字符串比较：忽略首尾空白与大小写（"Custom" vs "custom"）
+local function sameText(a, b)
+    return string.lower(Utils.trim(tostring(a))) == string.lower(Utils.trim(tostring(b)))
+end
+
+--- 读回并比对。返回 { checked, unverified, mismatches = {...}, readError }
+--
+--  比对规则（按写入值的类型分派，全部类型都要比 —— 早期版本只比 number 与曲线，
+--  导致 WhiteBalance / ConvertToGrayscale / ToneCurveName2012 这几个枚举与布尔字段
+--  实际上从未被校验过）：
+--    number  → 容差 0.02
+--    boolean → 严格相等
+--    string  → 忽略大小写与空白
+--    table   → 曲线逐点（容差 0.01）
+--    其它    → 计入 unverified（不判失败，只说明"没法比"）
 function ApplyDevelop.verify(photo, settings)
-    local out = { checked = 0, mismatches = {}, readError = nil }
+    local out = { checked = 0, unverified = 0, mismatches = {}, readError = nil }
 
     -- 给 Lightroom 一点时间落库（getDevelopSettings 的读回滞后是已知现象）
     -- ★ LrTasks.sleep 是 yield 型调用，必须走 safeCall
@@ -176,11 +193,12 @@ function ApplyDevelop.verify(photo, settings)
     for _, key in ipairs(Utils.sortedKeys(settings)) do
         local want = settings[key]
         local got  = current[key]
+        local wt   = type(want)
 
-        if type(want) == "number" then
+        if wt == "number" then
             if type(got) == "number" then
                 out.checked = out.checked + 1
-                if math.abs(want - got) > 0.02 then
+                if math.abs(want - got) > NUMBER_TOLERANCE then
                     out.mismatches[#out.mismatches + 1] = {
                         field = key, want = want, got = got,
                     }
@@ -191,7 +209,35 @@ function ApplyDevelop.verify(photo, settings)
                     note = "读回值缺失或类型不符",
                 }
             end
-        elseif type(want) == "table" then
+        elseif wt == "boolean" then
+            if type(got) == "boolean" then
+                out.checked = out.checked + 1
+                if want ~= got then
+                    out.mismatches[#out.mismatches + 1] = {
+                        field = key, want = tostring(want), got = tostring(got),
+                    }
+                end
+            else
+                out.mismatches[#out.mismatches + 1] = {
+                    field = key, want = tostring(want), got = tostring(got),
+                    note = "读回值缺失或类型不符",
+                }
+            end
+        elseif wt == "string" then
+            if type(got) == "string" then
+                out.checked = out.checked + 1
+                if not sameText(want, got) then
+                    out.mismatches[#out.mismatches + 1] = {
+                        field = key, want = want, got = got,
+                    }
+                end
+            else
+                out.mismatches[#out.mismatches + 1] = {
+                    field = key, want = want, got = tostring(got),
+                    note = "读回值缺失或类型不符",
+                }
+            end
+        elseif wt == "table" then
             -- 曲线：逐点比对
             if type(got) == "table" and #got == #want then
                 out.checked = out.checked + 1
@@ -214,10 +260,52 @@ function ApplyDevelop.verify(photo, settings)
                     note = "读回曲线缺失或长度不符",
                 }
             end
+        else
+            out.unverified = out.unverified + 1
         end
     end
 
     return out
+end
+
+----------------------------------------------------------------------
+
+--- 把 verify 结果压成「可落盘 / 可进结果 JSON」的小表
+--  原因：读回校验的价值全在「哪个字段没落地」，而日志在 Lightroom 里
+--        不保证可见（LrLogger 的 logfile 在本机不生成文件），
+--        所以必须能跟着 result.json 一起出去。
+-- @param v ApplyDevelop.verify 的返回值
+-- @param limit 最多保留多少条明细（默认 20，防止曲线等大字段把 JSON 撑爆）
+-- @return summary table|nil { checked, mismatchCount, unverified, readError, mismatches }
+function ApplyDevelop.summarizeVerify(v, limit)
+    if type(v) ~= "table" then
+        return nil
+    end
+    limit = limit or 20
+
+    local all = v.mismatches or {}
+    local list = {}
+    for i = 1, #all do
+        if i > limit then break end
+        local m = all[i]
+        list[#list + 1] = {
+            field = m.field,
+            want  = m.want,
+            got   = m.got,
+            note  = m.note,
+        }
+    end
+
+    local summary = {
+        checked       = v.checked or 0,
+        mismatchCount = #all,
+        unverified    = v.unverified or 0,
+        mismatches    = list,
+    }
+    if v.readError then
+        summary.readError = tostring(v.readError)
+    end
+    return summary
 end
 
 ----------------------------------------------------------------------

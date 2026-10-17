@@ -702,6 +702,7 @@ require "test_XmpParser"
 require "test_XmpMapping"
 require "test_Validation"
 require "test_ApplyEngine"
+require "test_Verify"
 require "test_Json"
 require "test_JobRunner"
 

@@ -23,6 +23,8 @@
 
     result（<id>.json）：
         { "id":..., "ok":..., "dryRun":..., "xmp":..., "photos":[ {...} ], "counts":{...} }
+        每个 photo 条目可带 verify = { checked, mismatches, unverified, fields=[...], readError? }
+        —— 读回校验（options.verify）的结果必须落到这里，因为 Lightroom 里没有可看的日志文件
 
     注意：
       · 一次只处理一个 job（写权限是全局锁，并发没有收益）
@@ -168,6 +170,52 @@ end
 -- 处理
 ----------------------------------------------------------------------
 
+--- 把 verify 摘要转成结果 JSON 里的形态
+--   数组语义要保住：没有不一致时 fields 也要输出 []，而不是被编码成 null
+function JobRunner.verifyForJson(summary)
+    if type(summary) ~= "table" then
+        return nil
+    end
+
+    local fields = Json.array({})
+    for _, m in ipairs(summary.mismatches or {}) do
+        fields[#fields + 1] = {
+            field = m.field,
+            want  = m.want,
+            got   = m.got,
+            note  = m.note,
+        }
+    end
+
+    local out = {
+        checked    = summary.checked or 0,
+        mismatches = summary.mismatchCount or #fields,
+        unverified = summary.unverified or 0,
+        fields     = fields,
+    }
+    if summary.readError then
+        out.readError = tostring(summary.readError)
+    end
+    return out
+end
+
+--- 把 ApplyEngine.apply 的 outcome 摊平进一个结果条目
+--   单独拆出来是为了能在没有 Lightroom 的环境里单测；
+--   之前这段内联在循环里，等于「结果 JSON 的字段」完全无法被测试覆盖。
+function JobRunner.applyOutcomeToEntry(entry, outcome)
+    entry.ok          = outcome.ok and true or false
+    entry.stage       = outcome.stage
+    entry.skipped     = outcome.skipped and true or false
+    entry.message     = outcome.message
+    entry.applied     = outcome.applied or 0
+    entry.wouldApply  = outcome.wouldApply or 0
+    entry.historyStep = outcome.historyName
+    entry.errors      = (outcome.counts or {}).errors or 0
+    entry.warnings    = (outcome.counts or {}).warnings or 0
+    entry.verify      = JobRunner.verifyForJson(outcome.verifySummary)
+    return entry
+end
+
 --- 处理一个已解析的 job
 -- @param job table（parseJob 的返回值）
 -- @param opts table|nil { dryRun =, verify = }
@@ -237,15 +285,7 @@ function JobRunner.processJob(job, opts)
             entry.fileName = desc.fileName
 
             local outcome = ApplyEngine.apply(photo, desc, analysis, engineOpts)
-            entry.ok          = outcome.ok and true or false
-            entry.stage       = outcome.stage
-            entry.skipped     = outcome.skipped and true or false
-            entry.message     = outcome.message
-            entry.applied     = outcome.applied or 0
-            entry.wouldApply  = outcome.wouldApply or 0
-            entry.historyStep = outcome.historyName
-            entry.errors      = (outcome.counts or {}).errors or 0
-            entry.warnings    = (outcome.counts or {}).warnings or 0
+            JobRunner.applyOutcomeToEntry(entry, outcome)
         end
 
         if entry.ok then

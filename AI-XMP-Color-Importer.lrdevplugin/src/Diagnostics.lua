@@ -14,6 +14,7 @@
 local Utils     = AI_COLOR_IMPORTER.load("src/Utils.lua")
 local Logger    = AI_COLOR_IMPORTER.load("src/Logger.lua")
 local Manifest  = AI_COLOR_IMPORTER.load("manifest.lua")
+local Json      = AI_COLOR_IMPORTER.load("src/Json.lua")
 
 local Diagnostics = {}
 
@@ -134,6 +135,81 @@ local function checkDelete(dir)
 end
 
 ----------------------------------------------------------------------
+-- 结果摘要：把 results/*.json 里最关键的结论摘成几行
+--   存在的理由：Lightroom 里没有可看的日志文件，读回校验如果只进日志就等于没有。
+--   现在点一次 Diagnostics 就能看到「写了几张、每张 applied 多少、校验对不对得上」。
+----------------------------------------------------------------------
+
+--- 解析一份 result.json，压成若干行
+local function summarizeResultFile(path)
+    local text = Utils.platform.readFile(path)
+    if not text then
+        return { Utils.basename(path) .. "  （读不出来）" }
+    end
+
+    local ok, res = pcall(function() return Json.decode(text) end)
+    if not ok or type(res) ~= "table" then
+        return { Utils.basename(path) .. "  （不是合法 JSON）" }
+    end
+
+    local head = string.format("%s  完成于 %s  总体 %s%s",
+        tostring(res.id or Utils.basename(path)),
+        tostring(res.finishedAt or "?"),
+        (res.ok == true) and "OK" or "FAILED",
+        (res.dryRun == true) and "  [dryRun]" or "")
+
+    local lines = { head }
+    for _, entry in ipairs(res.photos or {}) do
+        local parts = {
+            string.format("  %s", tostring(entry.fileName or entry.photo)),
+            string.format("stage=%s", tostring(entry.stage)),
+        }
+        if entry.skipped then parts[#parts + 1] = "已跳过" end
+        parts[#parts + 1] = string.format("applied=%s", tostring(entry.applied or 0))
+        if entry.wouldApply and entry.wouldApply ~= entry.applied then
+            parts[#parts + 1] = string.format("wouldApply=%s", tostring(entry.wouldApply))
+        end
+
+        local v = entry.verify
+        if type(v) == "table" then
+            if v.readError then
+                parts[#parts + 1] = "读回失败：" .. tostring(v.readError)
+            else
+                parts[#parts + 1] = string.format("校验 %s 项 / 不一致 %s",
+                    tostring(v.checked or 0), tostring(v.mismatches or 0))
+            end
+        elseif entry.stage == "apply" then
+            parts[#parts + 1] = "未校验"
+        end
+
+        lines[#lines + 1] = table.concat(parts, "  ")
+    end
+    return lines
+end
+
+--- 取最近 N 份结果（按文件名排序，job id 通常带序号）
+--   注意：Utils.platform.listFiles 返回的是**完整路径**，不要再 joinPath 一次
+local function recentResultFiles(dir, limit)
+    local files = Utils.platform.listFiles(dir)
+    if type(files) ~= "table" then
+        return {}
+    end
+    local paths = {}
+    for _, f in ipairs(files) do
+        if Utils.extension(f) == "json" then
+            paths[#paths + 1] = f
+        end
+    end
+    table.sort(paths)
+
+    local picked = {}
+    for i = math.max(1, #paths - (limit or 5) + 1), #paths do
+        picked[#picked + 1] = paths[i]
+    end
+    return picked
+end
+
+----------------------------------------------------------------------
 -- 汇总
 ----------------------------------------------------------------------
 
@@ -156,7 +232,8 @@ function Diagnostics.collect(opts)
         tostring(Manifest.pluginVersionText),
         tostring(Manifest.pluginVersion and Manifest.pluginVersion.build))))
     add(line("插件目录", tostring(AI_COLOR_IMPORTER.root)))
-    add(line("Lua", tostring(_VERSION)))
+    -- Lightroom 的沙箱不提供 _VERSION，直接 tostring 会得到 "nil"
+    add(line("Lua", _VERSION and tostring(_VERSION) or "未知（沙箱未提供 _VERSION）"))
 
     ----------------------------------------------------------------
     -- 监听器
@@ -209,6 +286,22 @@ function Diagnostics.collect(opts)
     add(line("deleteFile", checkDelete(p.inbox)))
     add(line("moveFile(参考)", checkMove(p.inbox, p.archive)))
     add(line("yield-safe pcall", tostring(Utils.hasYieldSafeCall())))
+
+    ----------------------------------------------------------------
+    -- 最近的 job 结果（写没写进去 / 校验对不对得上）
+    ----------------------------------------------------------------
+    add("")
+    add("[最近 job 结果]")
+    local paths = recentResultFiles(p.results, 5)
+    if #paths == 0 then
+        add("  （results/ 里还没有结果）")
+    else
+        for _, path in ipairs(paths) do
+            for _, s in ipairs(summarizeResultFile(path)) do
+                add(s)
+            end
+        end
+    end
 
     ----------------------------------------------------------------
     -- 最近日志

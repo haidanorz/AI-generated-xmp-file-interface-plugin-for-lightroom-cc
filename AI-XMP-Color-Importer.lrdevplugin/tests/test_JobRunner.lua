@@ -462,6 +462,46 @@ T.case("collect 覆盖关键段落，且文件自检能跑通", function()
     T.contains(report, "OK", "自检至少应有一项通过")
 end)
 
+T.case("collect 会把最近结果里「写没写进去 / 校验对不对得上」摘出来", function()
+    JobRunner.setQueueDir(QUEUE)
+    JobRunner.ensureDirs()
+    local p = JobRunner.paths()
+
+    -- 清掉历史结果，避免误判
+    for _, f in ipairs(Utils.platform.listFiles(p.results)) do
+        Utils.platform.deleteFile(f)
+    end
+
+    local resultPath = Utils.platform.joinPath(p.results, "apply-001.json")
+    local okWrite, wErr = Utils.platform.writeFile(resultPath, Json.encode({
+        id = "apply-001", ok = true, dryRun = false,
+        finishedAt = "2026-10-17 16:57:59", xmp = "x.xmp",
+        photos = Json.array({
+            {
+                fileName = "DSC05045.ARW", stage = "apply", ok = true, applied = 55,
+                verify = {
+                    checked = 55, mismatches = 1, unverified = 0,
+                    fields = Json.array({ { field = "WhiteBalance", want = "Custom", got = "Daylight" } }),
+                },
+            },
+        }),
+        counts = { photos = 1, ok = 1, failed = 0, skipped = 0 },
+    }))
+
+    local report = Diagnostics.collect { listener = Listener }
+    local section = report:match("%[最近 job 结果%](.-)%[最近日志%]") or "<没有该段落>"
+
+    T.truthy(okWrite, "前置：结果文件应写入成功（" .. tostring(wErr) .. "）")
+    T.truthy(Utils.platform.readFile(resultPath), "前置：结果文件应能读回")
+    T.contains(report, "[最近 job 结果]")
+    T.contains(section, "DSC05045.ARW", "段落内容：" .. section)
+    T.contains(report, "apply-001", "应列出 job id")
+    T.contains(report, "DSC05045.ARW")
+    T.contains(report, "校验 55 项 / 不一致 1", "应把校验结论摘出来")
+
+    Utils.platform.deleteFile(resultPath)
+end)
+
 T.case("write 会落到 <队列>/status.txt", function()
     JobRunner.setQueueDir(QUEUE)
     local path = Diagnostics.write { listener = Listener }
