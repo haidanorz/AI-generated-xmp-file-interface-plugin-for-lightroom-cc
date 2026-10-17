@@ -310,19 +310,29 @@ function JobRunner.archiveJob(jobPath, succeeded)
         dest = Utils.platform.chooseUniqueFile(dest)
     end
 
-    local ok, err = Utils.platform.moveFile(jobPath, dest)
-    if ok then
-        return true
+    -- 归档方式：读 → 写 → 删。
+    --   刻意**不用** LrFileUtils.move：实测在 Lightroom Classic 14.5.1 上它返回 false
+    --   且不给出任何原因（诊断报告里就是 move→archive: FAILED（没有给出原因））。
+    --   而 readFile / writeFile / deleteFile 三个原语是实测可用的。
+    local content = Utils.platform.readFile(jobPath)
+    if content then
+        local okWrite, wErr = Utils.platform.writeFile(dest, content)
+        if okWrite then
+            Utils.platform.deleteFile(jobPath)
+            return true
+        end
+        Logger.warn("归档写入失败：" .. tostring(wErr), {
+            operation = "JOB", jobId = Utils.basename(jobPath),
+        })
+    else
+        Logger.warn("归档读取失败，无法复制 job 内容", {
+            operation = "JOB", jobId = Utils.basename(jobPath),
+        })
     end
 
-    -- 归档失败必须兜底：留在 inbox 里会被每秒重复处理，
-    -- dryRun 下只是反复覆盖结果，真跑起来则会重复写照片。
-    Logger.warn("归档 job 失败，尝试直接删除：" .. tostring(err), {
-        operation = "JOB", jobId = Utils.basename(jobPath),
-    })
-
+    -- 兜底：留在 inbox 里会被反复处理，宁可只删掉（结果文件里有完整信息）
     if Utils.platform.deleteFile and Utils.platform.deleteFile(jobPath) then
-        Logger.warn("已删除未归档的 job（结果文件仍保留）", {
+        Logger.warn("job 未能归档，已直接删除（结果文件仍保留）", {
             operation = "JOB", jobId = Utils.basename(jobPath),
         })
         return false

@@ -47,7 +47,42 @@ local function checkList(dir)
     return string.format("OK（%d 项）", #files)
 end
 
---- 真正做一次 move：这是之前静默失败的那一步
+--- 真正做一次归档（读 → 写 → 删）——这才是 JobRunner 实际用的路径
+local function checkArchive(fromDir, toDir)
+    local src  = Utils.platform.joinPath(fromDir, ".selftest-arch.txt")
+    local dest = Utils.platform.joinPath(toDir, ".selftest-arch.txt")
+
+    local okW = Utils.platform.writeFile(src, "archive-test")
+    if not okW then
+        return "SKIPPED  源文件写不出来"
+    end
+    if Utils.platform.fileExists(dest) then
+        Utils.platform.deleteFile(dest)
+    end
+
+    local content = Utils.platform.readFile(src)
+    if not content then
+        Utils.platform.deleteFile(src)
+        return "FAILED  源文件读不出来"
+    end
+
+    local okCopy   = Utils.platform.writeFile(dest, content)
+    local copied   = okCopy and Utils.platform.fileExists(dest)
+    local srcGone  = false
+    if copied then
+        Utils.platform.deleteFile(src)
+        srcGone = not Utils.platform.fileExists(src)
+    end
+
+    if copied  then Utils.platform.deleteFile(dest) end
+    if not srcGone then Utils.platform.deleteFile(src) end
+
+    if not copied  then return "FAILED  目标文件没写出来" end
+    if not srcGone then return "FAILED  源文件删不掉" end
+    return "OK"
+end
+
+--- 真正做一次 move（仅作参考：本项目已不再依赖它）
 local function checkMove(fromDir, toDir)
     local src  = Utils.platform.joinPath(fromDir, ".selftest-move.txt")
     local dest = Utils.platform.joinPath(toDir, ".selftest-move.txt")
@@ -170,8 +205,9 @@ function Diagnostics.collect(opts)
     add("[文件操作自检]")
     add(line("writeFile", checkWrite(p.inbox)))
     add(line("listFiles", checkList(p.inbox)))
-    add(line("move→archive", checkMove(p.inbox, p.archive)))
+    add(line("archive(读写删)", checkArchive(p.inbox, p.archive)))
     add(line("deleteFile", checkDelete(p.inbox)))
+    add(line("moveFile(参考)", checkMove(p.inbox, p.archive)))
     add(line("yield-safe pcall", tostring(Utils.hasYieldSafeCall())))
 
     ----------------------------------------------------------------

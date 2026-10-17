@@ -235,11 +235,12 @@ T.case("归档失败时兜底删除，避免 job 留在 inbox 被反复处理", 
     local path = jobFile("stuck.json", { xmp = BASIC_XMP, photos = { "D:/p/a.CR3" } })
     T.truthy(Utils.platform.fileExists(path), "前置：job 应已写入")
 
-    local savedMove   = Utils.platform.moveFile
+    local savedWrite  = Utils.platform.writeFile
     local savedDelete = Utils.platform.deleteFile
     local deleteCalled = false
 
-    Utils.platform.moveFile = function() return nil, "模拟移动失败" end
+    -- 归档 = 读 + 写 + 删；这里让「写」失败
+    Utils.platform.writeFile = function() return nil, "模拟写失败" end
     Utils.platform.deleteFile = function(p)
         deleteCalled = true
         return savedDelete(p)
@@ -247,7 +248,7 @@ T.case("归档失败时兜底删除，避免 job 留在 inbox 被反复处理", 
 
     local okRun, archived = pcall(JobRunner.archiveJob, path, true)
 
-    Utils.platform.moveFile   = savedMove
+    Utils.platform.writeFile  = savedWrite
     Utils.platform.deleteFile = savedDelete
 
     T.truthy(okRun, "archiveJob 不应抛错")
@@ -268,15 +269,15 @@ T.case("归档彻底失败时不会每秒重复处理同一个 job", function()
 
     local path = jobFile("dup.json", { id = "dup", xmp = BASIC_XMP, photos = { "D:/p/a.CR3" } })
 
-    local savedMove   = Utils.platform.moveFile
+    local savedWrite  = Utils.platform.writeFile
     local savedDelete = Utils.platform.deleteFile
-    Utils.platform.moveFile   = function() return nil, "模拟移动失败" end
+    Utils.platform.writeFile  = function() return nil, "模拟写失败" end
     Utils.platform.deleteFile = function() return false end   -- 连删除也失败
 
     local first  = JobRunner.processAll(nil)
     local second = JobRunner.processAll(nil)
 
-    Utils.platform.moveFile   = savedMove
+    Utils.platform.writeFile  = savedWrite
     Utils.platform.deleteFile = savedDelete
 
     T.eq(first.jobs, 1, "第一次应处理")
@@ -455,7 +456,7 @@ T.case("collect 覆盖关键段落，且文件自检能跑通", function()
     T.contains(report, "[队列目录]")
     T.contains(report, "[文件操作自检]")
     T.contains(report, "writeFile:")
-    T.contains(report, "move→archive:")
+    T.contains(report, "archive(读写删)")
     T.contains(report, "deleteFile:")
     T.contains(report, "build", "应带上插件版本")
     T.contains(report, "OK", "自检至少应有一项通过")
