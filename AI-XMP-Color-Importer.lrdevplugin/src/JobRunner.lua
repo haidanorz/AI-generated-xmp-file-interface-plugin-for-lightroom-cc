@@ -33,6 +33,7 @@
 
 local Utils         = AI_COLOR_IMPORTER.load("src/Utils.lua")
 local Logger        = AI_COLOR_IMPORTER.load("src/Logger.lua")
+local Manifest      = AI_COLOR_IMPORTER.load("manifest.lua")
 local Json          = AI_COLOR_IMPORTER.load("src/Json.lua")
 local ApplyEngine   = AI_COLOR_IMPORTER.load("src/ApplyEngine.lua")
 local PhotoResolver = AI_COLOR_IMPORTER.load("src/PhotoResolver.lua")
@@ -43,6 +44,18 @@ local JobRunner = {}
 JobRunner.MAX_PHOTOS_PER_JOB = 50
 
 local state = { queueDir = nil }
+
+--- 已处理过的 job：path -> 文件大小
+--   作用：如果归档失败（文件留在 inbox），不要每秒把它重新处理一遍。
+--   内容变了（大小不同）则视为新的 job。
+local processed = {}
+local skipWarned = {}
+
+--- 仅供测试：清空「已处理」记忆
+function JobRunner._resetProcessed()
+    processed = {}
+    skipWarned = {}
+end
 
 ----------------------------------------------------------------------
 -- 路径
@@ -172,6 +185,9 @@ function JobRunner.processJob(job, opts)
         id       = job.id,
         ok       = true,
         dryRun   = dryRun,
+        pluginVersion = string.format("%s (build %s)",
+            tostring(Manifest.pluginVersionText),
+            tostring(Manifest.pluginVersion and Manifest.pluginVersion.build)),
         xmp      = job.xmp,
         startedAt = Utils.timestamp(Utils.platform.now and Utils.platform.now() or 0),
         photos   = Json.array({}),   -- 保持 JSON 数组语义（空的时候也是 []）
@@ -350,14 +366,31 @@ end
 -- @return summary table { jobs=, ok=, failed= }
 function JobRunner.processAll(opts)
     JobRunner.ensureDirs()
-    local summary = { jobs = 0, ok = 0, failed = 0 }
+    local summary = { jobs = 0, ok = 0, failed = 0, alreadyProcessed = 0 }
+
     for _, jobPath in ipairs(JobRunner.listPending()) do
-        summary.jobs = summary.jobs + 1
-        local ok = JobRunner.processOne(jobPath, opts)
-        if ok then
-            summary.ok = summary.ok + 1
+        -- 归档失败时文件会留在 inbox；这里挡一下，避免每秒重复处理。
+        -- 用「路径 + 文件大小」判断内容是否变过。
+        local size = Utils.platform.fileSize and Utils.platform.fileSize(jobPath) or nil
+        local seenSize = processed[jobPath]
+        if seenSize ~= nil and (size == nil or seenSize == size) then
+            summary.alreadyProcessed = summary.alreadyProcessed + 1
+            if not skipWarned[jobPath] then
+                skipWarned[jobPath] = true
+                Logger.warn("这个 job 已经处理过但没能归档，先跳过避免重复处理：" ..
+                    tostring(Utils.basename(jobPath)) ..
+                    "（内容改动或重载插件后会重新处理）",
+                    { operation = "JOB", result = "SKIPPED_DUP" })
+            end
         else
-            summary.failed = summary.failed + 1
+            summary.jobs = summary.jobs + 1
+            local ok = JobRunner.processOne(jobPath, opts)
+            processed[jobPath] = size
+            if ok then
+                summary.ok = summary.ok + 1
+            else
+                summary.failed = summary.failed + 1
+            end
         end
     end
     return summary

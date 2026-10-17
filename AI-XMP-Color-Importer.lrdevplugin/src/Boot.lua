@@ -158,13 +158,20 @@ local function buildPlatform(pluginRoot, Utils)
             return out
         end,
 
-        -- LrFileUtils.move 会 yield，必须走 safeCall
+        -- LrFileUtils.move 会 yield，必须走 safeCall。
+        -- ★ 注意：safeCall 的第一个返回值是「调用有没有抛异常」，
+        --   而 LrFileUtils.move 自己会用 (false, reason) 表示「失败但不抛异常」。
+        --   之前就是只看第一个返回值，把 move 的失败当成了成功 —— 结果 job 永远不归档，
+        --   还看不到任何错误。
         moveFile = function(srcPath, destPath)
-            local ok, err = Utils.safeCall("ai-color-move-file", function()
+            local okCall, result, reason = Utils.safeCall("ai-color-move-file", function()
                 return LrFileUtils.move(srcPath, destPath)
             end)
-            if not ok then
-                return nil, tostring(err)
+            if not okCall then
+                return nil, "调用异常：" .. tostring(result)
+            end
+            if result == false or result == nil then
+                return nil, "move 返回失败：" .. tostring(reason or "（没有给出原因）")
             end
             return true
         end,
@@ -179,11 +186,24 @@ local function buildPlatform(pluginRoot, Utils)
             return path
         end,
 
+        fileSize = function(path)
+            local ok, attrs = Utils.safeCall("ai-color-file-attrs", function()
+                return LrFileUtils.fileAttributes(path)
+            end)
+            if ok and type(attrs) == "table" then
+                return attrs.fileSize
+            end
+            return nil
+        end,
+
         deleteFile = function(path)
-            local ok = Utils.safeCall("ai-color-delete-file", function()
+            local okCall, result, reason = Utils.safeCall("ai-color-delete-file", function()
                 return LrFileUtils.delete(path)
             end)
-            return ok
+            if not okCall or result == false or result == nil then
+                return false, tostring(reason or result or "delete 失败")
+            end
+            return true
         end,
 
         joinPath = function(...)

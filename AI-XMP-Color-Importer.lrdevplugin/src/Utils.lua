@@ -35,6 +35,7 @@ local platform = {
     moveFile      = nil,-- function(srcPath, destPath) -> ok | nil, err
     chooseUniqueFile = nil, -- function(path) -> 不冲突的新路径
     deleteFile    = nil,-- function(path) -> boolean
+    fileSize      = nil,-- function(path) -> number|nil
 }
 
 local hasIO = (type(io) == "table" and type(io.open) == "function")
@@ -164,6 +165,17 @@ if platform.moveFile == nil and hasIO then
             return nil, err or "移动失败"
         end
         return true
+    end
+end
+
+--- 取文件大小（用于判断 job 内容有没有变化）
+if platform.fileSize == nil and hasIO then
+    platform.fileSize = function(path)
+        local f = io.open(path, "rb")
+        if not f then return nil end
+        local size = f:seek("end")
+        f:close()
+        return size
     end
 end
 

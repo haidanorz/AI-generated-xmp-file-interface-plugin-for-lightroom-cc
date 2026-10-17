@@ -90,7 +90,7 @@ local MODULES = {
     -- 无 UI 应用引擎
     "ApplyEngine",
     -- 自动化队列
-    "Json", "JobRunner", "AutomationListener", "Boot",
+    "Json", "JobRunner", "AutomationListener", "Boot", "Diagnostics",
     -- Lightroom 适配层（import 已改为延迟获取，因此也应能加载）
     "PhotoResolver", "ApplyDevelop",
     -- UI

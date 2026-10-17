@@ -57,7 +57,7 @@ return {
     LrToolkitIdentifier  = "com.aicolor.xmp-importer",
     LrPluginName         = "AI XMP Color Importer",
 
-    VERSION = { major = 1, minor = 0, revision = 0, build = 12 },
+    VERSION = { major = 1, minor = 0, revision = 0, build = 13 },
 
     ------------------------------------------------------------------
     -- 菜单项
@@ -84,6 +84,11 @@ return {
         {
             title = "AI Color: Stop Automation Listener…",
             file  = "AutomationStop.lua",
+        },
+        {
+            -- 诊断报告：状态 + 文件操作自检 + 最近日志（写到 queue/status.txt）
+            title = "AI Color: Diagnostics…",
+            file  = "AutomationStatus.lua",
         },
     },
 }

@@ -256,6 +256,38 @@ T.case("归档失败时兜底删除，避免 job 留在 inbox 被反复处理", 
     T.falsy(Utils.platform.fileExists(path), "job 不应还留在 inbox 里")
 end)
 
+T.case("归档彻底失败时不会每秒重复处理同一个 job", function()
+    JobRunner.setQueueDir(QUEUE)
+    JobRunner.ensureDirs()
+    JobRunner._resetProcessed()
+
+    local p = JobRunner.paths()
+    for _, f in ipairs(Utils.platform.listFiles(p.inbox)) do
+        Utils.platform.deleteFile(f)
+    end
+
+    local path = jobFile("dup.json", { id = "dup", xmp = BASIC_XMP, photos = { "D:/p/a.CR3" } })
+
+    local savedMove   = Utils.platform.moveFile
+    local savedDelete = Utils.platform.deleteFile
+    Utils.platform.moveFile   = function() return nil, "模拟移动失败" end
+    Utils.platform.deleteFile = function() return false end   -- 连删除也失败
+
+    local first  = JobRunner.processAll(nil)
+    local second = JobRunner.processAll(nil)
+
+    Utils.platform.moveFile   = savedMove
+    Utils.platform.deleteFile = savedDelete
+
+    T.eq(first.jobs, 1, "第一次应处理")
+    T.eq(second.jobs, 0, "第二次不应重复处理")
+    T.eq(second.alreadyProcessed, 1, "应被识别为已处理")
+    T.truthy(Utils.platform.fileExists(path), "模拟归档失败，job 应仍在")
+
+    Utils.platform.deleteFile(path)
+    JobRunner._resetProcessed()
+end)
+
 ----------------------------------------------------------------------
 
 T.suite("PhotoResolver / 按路径定位（自动化入口的健壮性）")
@@ -404,6 +436,42 @@ T.case("start 在非 Lightroom 环境明确失败（不能用 LrTasks）", funct
     T.falsy(ok, "测试环境没有 LrTasks，应失败")
     T.contains(tostring(err), "LrTasks")
     T.falsy(Listener.isRunning(), "失败后不应留在运行态")
+end)
+
+----------------------------------------------------------------------
+
+T.suite("Diagnostics / 自检报告（日志看不到时的唯一出口）")
+
+local Diagnostics = require "Diagnostics"
+
+T.case("collect 覆盖关键段落，且文件自检能跑通", function()
+    JobRunner.setQueueDir(QUEUE)
+    JobRunner.ensureDirs()
+
+    local report = Diagnostics.collect { listener = Listener }
+
+    T.contains(report, "诊断报告")
+    T.contains(report, "[监听器]")
+    T.contains(report, "[队列目录]")
+    T.contains(report, "[文件操作自检]")
+    T.contains(report, "writeFile:")
+    T.contains(report, "move→archive:")
+    T.contains(report, "deleteFile:")
+    T.contains(report, "build", "应带上插件版本")
+    T.contains(report, "OK", "自检至少应有一项通过")
+end)
+
+T.case("write 会落到 <队列>/status.txt", function()
+    JobRunner.setQueueDir(QUEUE)
+    local path = Diagnostics.write { listener = Listener }
+
+    T.truthy(path ~= nil, "应写入成功")
+    T.contains(path, "status.txt")
+    T.truthy(Utils.platform.fileExists(path), "文件应存在")
+
+    local back = Utils.platform.readFile(path)
+    T.contains(back, "诊断报告", "内容应完整落盘")
+    Utils.platform.deleteFile(path)
 end)
 
 return true
